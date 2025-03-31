@@ -90,4 +90,21 @@ public class TaskManager {
         setTasks();
         System.out.println("Task updated: " + task);
     }
+
+    // Mark a task as in-progress or done by id
+    public static void markTask(int id, String status) {
+        Task task = tasks.stream()
+                .filter(t -> t.getId() == id)
+                .findFirst()
+                .orElse(null);
+
+        if (task == null) {
+            System.out.println("Task not found with id: " + id);
+            return;
+        }
+
+        task.setStatus(status);
+        setTasks();
+        System.out.println("Task marked as " + status + ": " + task);
+    }
 }

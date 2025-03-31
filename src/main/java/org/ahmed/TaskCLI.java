@@ -48,14 +48,16 @@ public class TaskCLI {
                     System.out.println("Please provide a task id");
                     return;
                 }
-                System.out.println("Marking task " + args[1] + " as in-progress");
+                int taskId = Integer.parseInt(args[1]);
+                TaskManager.markTask(taskId, "in-progress");
                 break;
             case "mark-done":
                 if (args.length < 2) {
                     System.out.println("Please provide a task id");
                     return;
                 }
-                System.out.println("Marking task " + args[1] + " as done");
+                int taskIdDone = Integer.parseInt(args[1]);
+                TaskManager.markTask(taskIdDone, "done");
                 break;
             case "list":
                 String status = args.length > 1 ? args[1] : null;
