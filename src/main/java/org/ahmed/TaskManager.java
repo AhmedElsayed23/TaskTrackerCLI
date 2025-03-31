@@ -73,4 +73,21 @@ public class TaskManager {
                 .filter(task -> task.getStatus().equals(status))
                 .forEach(System.out::println);
     }
+
+    // Update a task by id and new description
+    public static void updateTask(int id, String newDescription) {
+        Task task = tasks.stream()
+                .filter(t -> t.getId() == id)
+                .findFirst()
+                .orElse(null);
+
+        if (task == null) {
+            System.out.println("Task not found with id: " + id);
+            return;
+        }
+
+        task.setDescription(newDescription);
+        setTasks();
+        System.out.println("Task updated: " + task);
+    }
 }

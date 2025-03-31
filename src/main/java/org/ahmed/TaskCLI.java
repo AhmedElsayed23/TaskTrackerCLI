@@ -32,7 +32,9 @@ public class TaskCLI {
                     System.out.println("Please provide a task id and a new description");
                     return;
                 }
-                System.out.println("Updating task " + args[1] + " with new description: " + args[2]);
+                int id = Integer.parseInt(args[1]);
+                String newDescription = args[2];
+                TaskManager.updateTask(id, newDescription);
                 break;
             case "delete":
                 if (args.length < 2) {
