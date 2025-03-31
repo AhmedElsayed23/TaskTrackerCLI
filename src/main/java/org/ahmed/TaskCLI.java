@@ -57,7 +57,7 @@ public class TaskCLI {
                 break;
             case "list":
                 String status = args.length > 1 ? args[1] : null;
-                System.out.println("Listing tasks with status: " + status);
+                TaskManager.listTasks(status);
                 break;
             default:
                     System.out.println("Unknown command: " + command);

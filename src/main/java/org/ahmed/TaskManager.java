@@ -61,4 +61,16 @@ public class TaskManager {
         setTasks();
         System.out.println("Task added: " + newTask);
     }
+
+    // List all tasks or by filter
+    public static void listTasks(String status) {
+        if (status == null) {
+            tasks.forEach(System.out::println);
+            return;
+        }
+
+        tasks.stream()
+                .filter(task -> task.getStatus().equals(status))
+                .forEach(System.out::println);
+    }
 }
