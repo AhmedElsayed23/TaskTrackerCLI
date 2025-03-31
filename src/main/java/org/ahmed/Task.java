@@ -1,6 +1,6 @@
 package org.ahmed;
 
-import java.time.LocalDateTime;
+import java.util.Date;
 
 public class Task {
     //Task Properties
@@ -14,28 +14,28 @@ public class Task {
     private final int id;
     private String description;
     private String status;
-    private final LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private final Date createdAt;
+    private Date updatedAt;
 
     //Constructor
-    public Task(int id, String description, String status, LocalDateTime createdAt, LocalDateTime updatedAt) {
+    public Task(int id, String description) {
         this.id = id;
         this.description = description;
-        this.status = status;
-        this.createdAt = createdAt;
-        this.updatedAt = updatedAt;
+        this.status = "todo";
+        this.createdAt = new Date();
+        this.updatedAt = new Date();
     }
 
     // Getters
     public int getId() {return id;}
     public String getDescription() {return description;}
     public String getStatus() {return status;}
-    public LocalDateTime getCreatedAt() {return createdAt;}
-    public LocalDateTime getUpdatedAt() {return updatedAt;}
+    public Date getCreatedAt() {return createdAt;}
+    public Date getUpdatedAt() {return updatedAt;}
 
     // Setters
-    public void setDescription(String description) {this.description = description; this.updatedAt = LocalDateTime.now();}
-    public void setStatus(String status) {this.status = status; this.updatedAt = LocalDateTime.now();}
+    public void setDescription(String description) {this.description = description; this.updatedAt =new Date();}
+    public void setStatus(String status) {this.status = status; this.updatedAt = new Date();}
 
     //toString
     @Override

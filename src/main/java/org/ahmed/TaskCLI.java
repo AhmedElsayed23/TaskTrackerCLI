@@ -1,5 +1,6 @@
 package org.ahmed;
 
+
 public class TaskCLI {
 
     public static void main(String[] args) {
@@ -24,7 +25,7 @@ public class TaskCLI {
                     System.out.println("Please provide a description for the task");
                     return;
                 }
-                System.out.println("Adding task: " + args[1]);
+                TaskManager.addTask(args[1]);
                 break;
             case "update":
                 if (args.length < 3) {
