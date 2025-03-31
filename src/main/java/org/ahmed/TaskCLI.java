@@ -41,7 +41,8 @@ public class TaskCLI {
                     System.out.println("Please provide a task id");
                     return;
                 }
-                System.out.println("Deleting task: " + args[1]);
+                int taskIdDelete = Integer.parseInt(args[1]);
+                TaskManager.deleteTask(taskIdDelete);
                 break;
             case "mark-in-progress":
                 if (args.length < 2) {

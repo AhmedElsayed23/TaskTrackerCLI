@@ -32,6 +32,7 @@ public class TaskManager {
             } catch (IOException e) {
                 System.err.println("Error creating file: " + e.getMessage());
             }
+            return;
         }
 
         try (Reader reader = new FileReader(FILE_NAME)) {
@@ -106,5 +107,22 @@ public class TaskManager {
         task.setStatus(status);
         setTasks();
         System.out.println("Task marked as " + status + ": " + task);
+    }
+
+    // Delete a task by id
+    public static void deleteTask(int id) {
+        Task task = tasks.stream()
+                .filter(t -> t.getId() == id)
+                .findFirst()
+                .orElse(null);
+
+        if (task == null) {
+            System.out.println("Task not found with id: " + id);
+            return;
+        }
+
+        tasks.remove(task);
+        setTasks();
+        System.out.println("Task deleted: " + task);
     }
 }
