@@ -1,1 +1,238 @@
 
+*-----------------------------------------------------------------------------
+* <Rating>-31</Rating>
+*-----------------------------------------------------------------------------
+    SUBROUTINE VIR.CIB.CUS.JOINT
+*********************************** AUDIT INFORMATION ***********************
+* 1. Author&Date created  : AHMED 20260623
+* 2. Site name            : CIB
+* 3. Product              : CUSTOMER
+* 4. Routine type         : VIR
+* 5. Installed            : VERSION
+* 6. E.V.B record         : CUSTOMER,TAM.INPUT - CUSTOMER,TAM.IND.AMEND
+********************************** PROGRAM DESCRIPTION **********************
+* 7. Description
+* -------------------
+*
+
+* in case the customer.typ is (J) and the relations codes either (77) or (80) to make the local fields [non-input] field.
+*
+* 8. Incoming arguments
+* -------------------------------
+* a)
+*
+* 9. Outgoing arguments
+* -------------------------------
+*******************************************************************************
+* Include files
+
+    $INSERT I_COMMON
+    $INSERT I_EQUATE
+    $INSERT I_F.CUSTOMER
+
+*****************************************************************************
+    GOSUB GET.LOCAL.FIELDS
+	GOSUB PROCESS
+	GOTO PROGRAM.END
+    
+	RETURN
+**************************************************************************************************************
+GET.LOCAL.FIELDS:
+***********
+	LOCAL.APPLICATION = 'CUSTOMER'
+    LOCAL.FIELD = 'CUSTOMER.TYP':VM:'JOINT.CUSTOMER':VM:'JOINT.PERCENTAG'
+    LOCAL.POSITION = ''
+	
+    CALL MULTI.GET.LOC.REF(LOCAL.APPLICATION,LOCAL.FIELD,LOCAL.POSITION)
+    
+	CUST.TYP.POS = LOCAL.POSITION<1,1>
+    JOINT.CUST.POS = LOCAL.POSITION<1,2>
+    JOINT.PERCENT.POS = LOCAL.POSITION<1,3>
+	
+	RETURN
+**************************************************************************************************************
+PROCESS:
+********
+	*-----------------------------------------------------------------------------
+    * 1. EXTRACT DATA & FIND MATCHING RELATION CUSTOMERS
+    *-----------------------------------------------------------------------------
+	CUST.TYPE = R.NEW(EB.CUS.LOCAL.REF)<1, CUST.TYP.POS>
+	
+	* Extract the multi-value fields (relation custs)
+	Y.REL.CODES = R.NEW(EB.CUS.RELATION.CODE)
+	Y.REL.CUSTS = R.NEW(EB.CUS.REL.CUSTOMER)
+	
+	* Count total multi-values in the relation group
+	Y.REL.COUNT = DCOUNT(Y.REL.CODES, @VM)
+	
+	* Temporary array to collect matching relation customers from this run
+	Y.MATCHED.REL.CUSTS = ""
+    Y.MATCH.COUNT = 0
+	
+	* Initialize the new position counter at 1
+    Y.NEW.POS = 1
+	REL.FLAG = 0
+	
+	
+	IF CUST.TYPE EQ 'J' THEN
+		* Loop through each value in the group
+		FOR Y.I = 1 TO Y.REL.COUNT
+			Y.CURRENT.CODE = Y.REL.CODES<1, Y.I>
+			Y.CURRENT.CUST = Y.REL.CUSTS<1, Y.I>
+			
+			 * Check if the relation code matches 77 or 80
+			 IF Y.CURRENT.CODE EQ '77' OR Y.CURRENT.CODE EQ '80' THEN
+				Y.MATCH.COUNT = Y.MATCH.COUNT + 1
+				
+				* Append matching customer using value marker (@VM)
+				Y.MATCHED.REL.CUSTS<1, Y.MATCH.COUNT> = Y.CURRENT.CUST
+				REL.FLAG = 1
+			 END
+			
+		 NEXT Y.I
+	END
+	
+	*-----------------------------------------------------------------------------
+    * 2. CONDITIONAL CLEARING BASED ON EXACT VALUE COMPARISON
+    *-----------------------------------------------------------------------------
+    
+	* Read the raw live screen state for joint customers
+	Y.RAW.JOINT.CUSTS = R.NEW(EB.CUS.LOCAL.REF)<1, JOINT.CUST.POS>
+	Y.RAW.JOINT.COUNT = DCOUNT(Y.RAW.JOINT.CUSTS, @SM)
+	
+	* Sanitize existing array to ignore entirely empty multi-value slots
+	Y.EXISTING.JOINT.CUSTS = ""
+	Y.CLEAN.COUNT = 0
+	FOR Y.C = 1 TO Y.RAW.JOINT.COUNT
+		RAW.VAL = FIELD(Y.RAW.JOINT.CUSTS,SM, Y.C)
+        
+		IF RAW.VAL NE "" THEN
+            Y.CLEAN.COUNT = Y.CLEAN.COUNT + 1
+            Y.EXISTING.JOINT.CUSTS<1, Y.CLEAN.COUNT> = RAW.VAL
+        END
+    NEXT Y.C
+	
+	CHANGE @SM TO @FM IN Y.MATCHED.REL.CUSTS
+	CHANGE @VM TO @FM IN Y.MATCHED.REL.CUSTS
+	
+	CHANGE @SM TO @FM IN Y.EXISTING.JOINT.CUSTS
+	CHANGE @VM TO @FM IN Y.EXISTING.JOINT.CUSTS
+	
+	* Create temporary copies to sort safely without modifying the actual R.NEW record
+	Y.SORTED.MATCHED = Y.MATCHED.REL.CUSTS
+	Y.SORTED.EXISTING = Y.EXISTING.JOINT.CUSTS
+		
+	
+	* Use T24 core SORT function to arrange both arrays
+	Y.SORTED.MATCHED = SORT(Y.SORTED.MATCHED)
+	Y.SORTED.EXISTING = SORT(Y.SORTED.EXISTING)
+	 
+	
+	* Compare the exact content of both lists (Checks actual customer IDs, order, and counts)
+	IF Y.SORTED.MATCHED EQ Y.SORTED.EXISTING AND Y.MATCHED.REL.CUSTS NE "" THEN
+		* CASE 1: The live values match the criteria perfectly.
+		
+		IF Y.RAW.JOINT.COUNT GT Y.MATCH.COUNT THEN
+			AF = EB.CUS.LOCAL.REF
+			AV = JOINT.CUST.POS
+			AS = Y.RAW.JOINT.COUNT
+			
+			* Define error marker text or point to an EB.ERROR record entry
+			ETEXT = "Please remove the empty joint customer row(s)" 
+			CALL STORE.END.ERROR
+			
+			RETURN
+		END
+        
+	END ELSE
+        
+        IF (CUST.TYPE EQ 'J') AND (REL.FLAG EQ 1) THEN
+			
+			* CASE 2: Otherwise, values are different.
+			
+			IF Y.RAW.JOINT.COUNT GT Y.MATCH.COUNT THEN
+				AF = EB.CUS.LOCAL.REF
+				AV = JOINT.CUST.POS
+				AS = Y.MATCH.COUNT + 1
+				* Define error marker text or point to an EB.ERROR record entry
+				ETEXT = "The relation customers does not match the joint percentage group." 
+				CALL STORE.END.ERROR
+				RETURN
+			END
+									
+			* Rebuild the clean list if the conditions are right
+            FOR Y.J = 1 TO Y.MATCH.COUNT
+				CUST.VAL = Y.MATCHED.REL.CUSTS<Y.J>
+                R.NEW(EB.CUS.LOCAL.REF)<1, JOINT.CUST.POS, Y.J> = CUST.VAL
+                R.NEW(EB.CUS.LOCAL.REF)<1, JOINT.PERCENT.POS, Y.J> = ''
+            NEXT Y.J
+			
+			
+        END
+        
+    END
+    
+	*-----------------------------------------------------------------------------
+    * 3. UI MATRIX CONTROL
+    *-----------------------------------------------------------------------------
+	IF (CUST.TYPE NE 'J') OR (REL.FLAG NE 1) THEN
+		
+		FOR X.C = Y.RAW.JOINT.COUNT TO 1 STEP -1
+			R.NEW(EB.CUS.LOCAL.REF)<1, JOINT.CUST.POS, X.C> = ''
+			R.NEW(EB.CUS.LOCAL.REF)<1, JOINT.PERCENT.POS, X.C> = ''
+		NEXT X.C
+		
+		T.LOCREF<JOINT.PERCENT.POS,7> = "NOINPUT"
+	END ELSE
+		
+		* HAPPY PATH: Sum the percentages to ensure they total exactly 100
+		Y.CUST.VALUES = R.NEW(EB.CUS.LOCAL.REF)<1, JOINT.CUST.POS>
+		Y.PERC.VALUES = R.NEW(EB.CUS.LOCAL.REF)<1, JOINT.PERCENT.POS>
+		
+		Y.CUST.COUNT  = DCOUNT(Y.CUST.VALUES, @SM)
+		Y.TOTAL.PERC  = 0
+		PERCENT.FLAG = 0
+		 
+		FOR Y.P = 1 TO Y.CUST.COUNT
+            Y.CURR.CUST = FIELD(Y.CUST.VALUES, SM, Y.P)
+            Y.CURR.PERC = FIELD(Y.PERC.VALUES, SM, Y.P)
+			
+			IF Y.CURR.CUST NE "" THEN
+                PERCENT.FLAG = 1
+            END
+
+            
+            IF Y.CURR.CUST NE "" AND Y.CURR.PERC NE "" THEN
+                Y.TOTAL.PERC = Y.TOTAL.PERC + Y.CURR.PERC
+            END ELSE
+				IF Y.CURR.CUST EQ "" AND Y.CURR.PERC NE "" THEN
+					* REMOVE ORPHANS FIX: Wipe percentage if the customer ID is missing
+                    R.NEW(EB.CUS.LOCAL.REF)<1, JOINT.PERCENT.POS, Y.P> = ''
+				END
+			END
+        NEXT Y.P
+		
+		 
+		IF PERCENT.FLAG THEN
+			
+			* Check if the verified total percentage is equal to 100
+			IF Y.TOTAL.PERC NE 100 THEN
+				AF = EB.CUS.LOCAL.REF
+				AV = JOINT.PERCENT.POS
+				AS = 1
+				
+				* Define error marker text or point to an EB.ERROR record entry
+				ETEXT = "Sum of Percentages must be 100%" 
+				CALL STORE.END.ERROR
+			END
+		
+		END
+
+	END
+		 
+    RETURN
+**************************************************************************************************************
+PROGRAM.END:
+************
+	RETURN
+END
