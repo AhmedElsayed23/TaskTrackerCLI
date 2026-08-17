@@ -1,1 +1,797 @@
+TEST
+SUBROUTINE CIB.NOF.APP.LOAN.GEN(RETURN.DATA)
 
+    $INSERT I_COMMON
+    $INSERT I_EQUATE
+    $INSERT I_ENQUIRY.COMMON
+	$INSERT I_F.AA.ARRANGEMENT
+    $INSERT I_F.CIB.H.LAR
+	$INSERT I_F.EB.CONTRACT.BALANCES
+	$INSERT I_F.CUSTOMER
+	$INSERT I_F.EB.LOOKUP
+	$INSERT I_F.SECTOR
+	$INSERT I_F.INDUSTRY
+	
+    GOSUB INITIALISE
+    GOSUB SELECT
+    GOSUB PROCESS
+ 
+RETURN
+
+***********
+INITIALISE:
+***********
+
+    fnLAR = "F.CIB.H.LAR"
+    fLAR = ""
+    CALL OPF(fnLAR,fLAR)
+
+    fnAA = "F.AA.ARRANGEMENT"
+    fAA = ""
+    CALL OPF(fnAA,fAA)
+	
+	fnEcb = "F.EB.CONTRACT.BALANCES"
+	fEcb = ""
+	CALL OPF(fnEcb,fEcb)
+
+	fnCustomer = "F.CUSTOMER"
+	fCustomer = ""
+	CALL OPF(fnCustomer,fCustomer)
+	
+	fnEbLookup = "F.EB.LOOKUP"
+	fEbLookup = ""
+	CALL OPF(fnEbLookup,fEbLookup)
+
+	fnSector = "F.SECTOR"
+	fSector = ""
+	CALL OPF(fnSector,fSector)
+	
+	fnIndustry = "F.INDUSTRY"	
+	fIndustry = ""
+	CALL OPF(fnIndustry,fIndustry)
+
+	yLookupId = "CIB.LAR.CLIENT.TYPE*INDIVIDUAL"
+	CALL F.READ(fnEbLookup,yLookupId,rEbLookup,fEbLookup,errEbLookup)	
+	yIndSector = rEbLookup<EB.LU.DATA.NAME>
+	yIndDesc = rEbLookup<EB.LU.DATA.VALUE>
+
+	yLookupId = "CIB.LAR.CLIENT.TYPE*COMPANY"
+	CALL F.READ(fnEbLookup,yLookupId,rEbLookup,fEbLookup,errEbLookup)	
+	yCompSector = rEbLookup<EB.LU.DATA.NAME>
+	yCompDesc = rEbLookup<EB.LU.DATA.VALUE>	
+	
+	yLookupId = "CIB.LAR.CLIENT.TYPE*COOPERATIVE"
+	CALL F.READ(fnEbLookup,yLookupId,rEbLookup,fEbLookup,errEbLookup)
+	yCoopSector = rEbLookup<EB.LU.DATA.NAME>
+	yCoopDesc = rEbLookup<EB.LU.DATA.VALUE>
+	
+	yAllSector = yIndSector : @VM : yCompSector : @VM : yCoopSector
+	
+	CHANGE @VM TO ' OR @ID EQ ' IN yAllSector
+	yTotCountCompUSD = 0; yTotCompUSD = 0; yTotCountCompEUR = 0; yTotCompEUR = 0; yTotCountCompEGP = 0; yTotCompEGP =0;
+	
+		yTotCountCompUSD = 0; yTotCompUSD = 0; yTotCountCompEUR = 0; yTotCompEUR = 0; yTotCountCompEGP = 0; yTotCompEGP =0;
+	countUSDMale = 0; countUSDFemale = 0; yTotBalMaleUSD = 0; yTotBalFemaleUSD = 0;	countEURMale = 0; countEURFemale = 0;
+	 yTotBalMaleEUR = 0; yTotBalFemaleEUR = 0;
+	countEGPMale = 0; countEGPFemale = 0;
+	yTotBalMaleEGP = 0; yTotBalFemaleEGP = 0;
+	
+RETURN
+
+*******
+SELECT:
+*******
+
+    SEL.CMD = "SELECT " : fnSector : " WITH @ID EQ " : yAllSector
+RETURN
+********
+PROCESS:
+********
+	DEBUG
+	CALL EB.READLIST(SEL.CMD,SECT.LIST,'',NO.SECT,SECT.ERR)
+	
+	LOOP 
+		REMOVE ySectorId FROM SECT.LIST SETTING YID
+	WHILE ySectorId:YID
+
+
+	GOSUB DEFAULT.VALUES
+
+		
+		SEL.LAR = "SELECT " : fnLAR : " WITH BOT.DECISION EQ APPROVED AND CLIENT.TYPE EQ " : ySectorId 
+		CALL EB.READLIST(SEL.LAR,LAR.LIST,'',NO.LAR,LAR.ERR)
+		
+	
+	
+		
+		
+		LOOP 
+		REMOVE yLarId FROM LAR.LIST SETTING YID
+		WHILE yLarId:YID
+		
+			CALL F.READ(fnLAR,yLarId,rLAR,fLAR,errLAR)
+			yAAId = rLAR<CIB.LAR.AA.ID>
+			yLarCurrency = rLAR<CIB.LAR.CURRENCY>
+			yClienType = rLAR<CIB.LAR.CLIENT.TYPE>
+			yCusId = rLAR<CIB.LAR.CUSTOMER.ID>
+			yWorkingBal = rLAR<CIB.LAR.APP.LOAN.AMOUNT>
+			
+			
+			
+			CALL F.READ(fnCustomer,yCusId,rCustomer,fCustomer,errCustomer)
+			yGender = rCustomer<EB.CUS.GENDER>
+			yIndustry = rCustomer<EB.CUS.INDUSTRY>
+
+			IF yWorkingBal EQ '' THEN CONTINUE
+				
+			LOCATE yClienType IN yIndSector SETTING YPOS THEN 
+				yIndFlag = 'Y'
+				IF yGender EQ 'MALE' THEN
+					yBenType = "Individual - Males"
+					
+					IF yLarCurrency EQ 'USD' THEN
+						yTotBalMaleUSD = yTotBalMaleUSD + yWorkingBal 
+						countUSDMale = countUSDMale + 1
+					END ELSE
+						IF yLarCurrency EQ 'EUR' THEN
+							yTotBalMaleEUR = yTotBalMaleEUR + yWorkingBal 
+							countEURMale = countEURMale + 1
+						END ELSE
+							IF yLarCurrency EQ 'EGP' THEN
+								yTotBalMaleEGP = yTotBalMaleEGP + yWorkingBal 
+								countEGPMale = countEGPMale + 1
+							END
+						END
+					END				
+					
+					
+					
+				END
+				
+				IF yGender EQ 'FEMALE' THEN
+					yBenType = "Individual - Females"
+					IF yLarCurrency EQ 'USD' THEN
+						yTotBalFemaleUSD = yTotBalFemaleUSD + yWorkingBal 
+						countUSDFemale = countUSDFemale + 1
+					END ELSE
+						IF yLarCurrency EQ 'EUR' THEN
+							yTotBalFemaleEUR = yTotBalFemaleEUR + yWorkingBal 
+							countEURFemale = countEURFemale + 1
+						END ELSE
+							IF yLarCurrency EQ 'EGP' THEN
+								yTotBalFemaleEGP = yTotBalFemaleEGP + yWorkingBal 
+								countEGPFemale = countEGPFemale + 1
+							END
+						END
+					END								
+				END				
+			END	
+				
+		**	LOCATE yClienType IN yCompSector SETTING YPOS THEN
+		**		yCompFlag = 'Y'
+		**		yCntComp = DCOUNT(yCompSector,@VM)
+		**		FOR COMP = 1 TO yCntComp
+		**			yCurrCmpSector = FIELD(yCompSector,@VM,COMP)
+		**			IF yClienType EQ yCurrCmpSector THEN
+		**				
+		**				yBenType = FIELD(yCompDesc,@VM,COMP)
+		**				IF yLarCurrency EQ 'USD' THEN
+		**					yTotBalCompUSD = yTotBalCompUSD + yWorkingBal 
+		**					countUSDComp = countUSDComp + 1
+		**					yTotCompUSD = yTotCompUSD + yWorkingBal
+		**					yTotCountCompUSD = yTotCountCompUSD + 1
+		**				END ELSE
+		**					IF yLarCurrency EQ 'EUR' THEN
+		**						yTotBalCompEUR = yTotBalCompEUR + yWorkingBal 
+		**						countEURComp = countEURComp + 1
+		**						yTotCompEUR = yTotCompEUR + yWorkingBal
+		**						yTotCountCompEUR = yTotCountCompEUR + 1
+		**					END ELSE
+		**						IF yLarCurrency EQ 'EGP' THEN
+		**							yTotBalCompEGP = yTotBalCompEGP + yWorkingBal 
+		**							countEGPComp = countEGPComp + 1
+		**							yTotCompEGP = yTotCompEGP + yWorkingBal
+		**							yTotCountCompEGP = yTotCountCompEGP + 1
+		**						END
+		**					END
+		**				END								
+		**				
+		**			END
+		**		NEXT COMP
+		**	END
+		
+							FINDSTR yClienType IN yCompSector SETTING YPOS THEN
+				
+					yCompFlag = 'Y'
+					yCntComp = DCOUNT(yCompSector,@VM)
+					FOR COMP = 1 TO yCntComp
+						yCurrCmpSector = FIELD(yCompSector,@VM,COMP)
+						IF yClienType EQ yCurrCmpSector THEN
+							
+							yBenType = FIELD(yCompDesc,@VM,COMP)
+							BEGIN CASE
+
+								CASE yBenType EQ 'Other Companies'
+									IF yLarCurrency EQ 'USD' THEN
+										yTotBalCompUSDOTCOMP = yTotBalCompUSDOTCOMP + yWorkingBal 
+										countUSDCompOTCOMP = countUSDCompOTCOMP + 1
+										yTotCompUSDOTCOMP = yTotCompUSDOTCOMP + yWorkingBal
+										yTotCountCompUSDOTCOMP = yTotCountCompUSDOTCOMP + 1
+									END ELSE
+										IF yLarCurrency EQ 'EUR' THEN
+											yTotBalCompEUROTCOMP = yTotBalCompEUROTCOMP + yWorkingBal 
+											countEURCompOTCOMP = countEURCompOTCOMP + 1
+											yTotCompEUROTCOMP = yTotCompEUROTCOMP + yWorkingBal
+											yTotCountCompEUROTCOMP = yTotCountCompEUROTCOMP + 1
+										END ELSE
+											IF yLarCurrency EQ 'EGP' THEN
+												yTotBalCompEGPOTCOMP = yTotBalCompEGPOTCOMP + yWorkingBal 
+												countEGPCompOTCOMP = countEGPCompOTCOMP + 1
+												yTotCompEGPOTCOMP = yTotCompEGPOTCOMP + yWorkingBal
+												yTotCountCompEGPOTCOMP = yTotCountCompEGPOTCOMP + 1
+											END
+										END
+									END
+							
+							
+							
+								CASE yBenType EQ 'Large Enterprise'
+								
+									IF yLarCurrency EQ 'USD' THEN
+										yTotBalCompUSDLE = yTotBalCompUSDLE + yWorkingBal 
+										countUSDCompLE = countUSDCompLE + 1
+										yTLEUSDLE = yTLEUSDLE + yWorkingBal
+										yTotCountCompUSDLE = yTotCountCompUSDLE + 1
+									END ELSE
+										IF yLarCurrency EQ 'EUR' THEN
+											yTotBalCompEURLE = yTotBalCompEURLE + yWorkingBal 
+											countEURCompLE = countEURCompLE + 1
+											yTLEEURLE = yTLEEURLE + yWorkingBal
+											yTotCountCompEURLE = yTotCountCompEURLE + 1
+										END ELSE
+											IF yLarCurrency EQ 'EGP' THEN
+												yTotBalCompEGPLE = yTotBalCompEGPLE + yWorkingBal 
+												countEGPCompLE = countEGPCompLE + 1
+												yTLEEGPLE = yTLEEGPLE + yWorkingBal
+												yTotCountCompEGPLE = yTotCountCompEGPLE + 1
+											END
+										END
+									END
+								
+								
+								
+								CASE yBenType EQ 'Medium Enterprise'
+									IF yLarCurrency EQ 'USD' THEN
+										yTotBalCompUSDME = yTotBalCompUSDME + yWorkingBal 
+										countUSDCompME = countUSDCompME + 1
+										yTMEUSDME = yTMEUSDME + yWorkingBal
+										yTotCountCompUSDME = yTotCountCompUSDME + 1
+									END ELSE
+										IF yLarCurrency EQ 'EUR' THEN
+											yTotBalCompEURME = yTotBalCompEURME + yWorkingBal 
+											countEURCompME = countEURCompME + 1
+											yTMEEURME = yTMEEURME + yWorkingBal
+											yTotCountCompEURME = yTotCountCompEURME + 1
+										END ELSE
+											IF yLarCurrency EQ 'EGP' THEN
+												yTotBalCompEGPME = yTotBalCompEGPME + yWorkingBal 
+												countEGPCompME = countEGPCompME + 1
+												yTMEEGPME = yTMEEGPME + yWorkingBal
+												yTotCountCompEGPME = yTotCountCompEGPME + 1
+											END
+										END
+									END
+								
+								
+								
+								
+								
+								CASE yBenType EQ 'Small Entreprise'
+								
+									IF yLarCurrency EQ 'USD' THEN
+										yTotBalCompUSDSE = yTotBalCompUSDSE + yWorkingBal 
+										countUSDCompSE = countUSDCompSE + 1
+										yTSEUSDSE = yTSEUSDSE + yWorkingBal
+										yTotCountCompUSDSE = yTotCountCompUSDSE + 1
+									END ELSE
+										IF yLarCurrency EQ 'EUR' THEN
+											yTotBalCompEURSE = yTotBalCompEURSE + yWorkingBal 
+											countEURCompSE = countEURCompSE + 1
+											yTSEEURSE = yTSEEURSE + yWorkingBal
+											yTotCountCompEURSE = yTotCountCompEURSE + 1
+										END ELSE
+											IF yLarCurrency EQ 'EGP' THEN
+												yTotBalCompEGPSE = yTotBalCompEGPSE + yWorkingBal 
+												countEGPCompSE = countEGPCompSE + 1
+												yTSEEGPSE = yTSEEGPSE + yWorkingBal
+												yTotCountCompEGPSE = yTotCountCompEGPSE + 1
+											END
+										END
+									END
+								
+								
+								
+								
+								CASE yBenType EQ 'Micro Entreprise'
+								
+									IF yLarCurrency EQ 'USD' THEN
+										yTotBalCompUSDMICROE = yTotBalCompUSDMICROE + yWorkingBal 
+										countUSDCompMICROE = countUSDCompMICROE + 1
+										yTMICROEUSDMICROE = yTMICROEUSDMICROE + yWorkingBal
+										yTotCountCompUSDMICROE = yTotCountCompUSDMICROE + 1
+									END ELSE
+										IF yLarCurrency EQ 'EUR' THEN
+											yTotBalCompEURMICROE = yTotBalCompEURMICROE + yWorkingBal 
+											countEURCompMICROE = countEURCompMICROE + 1
+											yTMICROEEURMICROE = yTMICROEEURMICROE + yWorkingBal
+											yTotCountCompEURMICROE = yTotCountCompEURMICROE + 1
+										END ELSE
+											IF yLarCurrency EQ 'EGP' THEN
+												yTotBalCompEGPMICROE = yTotBalCompEGPMICROE + yWorkingBal 
+												countEGPCompMICROE = countEGPCompMICROE + 1
+												yTMICROEEGPMICROE = yTMICROEEGPMICROE + yWorkingBal
+												yTotCountCompEGPMICROE = yTotCountCompEGPMICROE + 1
+											END
+										END
+									END
+								
+								
+								
+								CASE yBenType EQ 'Verry Small Entrerprise'
+									IF yLarCurrency EQ 'USD' THEN
+										yTotBalCompUSDVSE = yTotBalCompUSDVSE + yWorkingBal 
+										countUSDCompVSE = countUSDCompVSE + 1
+										yTVSEUSDVSE = yTVSEUSDVSE + yWorkingBal
+										yTotCountCompUSDVSE = yTotCountCompUSDVSE + 1
+									END ELSE
+										IF yLarCurrency EQ 'EUR' THEN
+											yTotBalCompEURVSE = yTotBalCompEURVSE + yWorkingBal 
+											countEURCompVSE = countEURCompVSE + 1
+											yTVSEEURVSE = yTVSEEURVSE + yWorkingBal
+											yTotCountCompEURVSE = yTotCountCompEURVSE + 1
+										END ELSE
+											IF yLarCurrency EQ 'EGP' THEN
+												yTotBalCompEGPVSE = yTotBalCompEGPVSE + yWorkingBal 
+												countEGPCompVSE = countEGPCompVSE + 1
+												yTVSEEGPVSE = yTVSEEGPVSE + yWorkingBal
+												yTotCountCompEGPVSE = yTotCountCompEGPVSE + 1
+											END
+										END
+									END
+							
+							
+						END CASE	
+							
+															
+							
+						END
+	
+					NEXT COMP
+				END
+				
+			LOCATE yClienType IN yCoopSector SETTING YPOS THEN
+				yCoopFlag = 'Y'
+				BEGIN CASE
+					CASE yIndustry EQ '1003'
+						yBenType = "Cooperative (Agriculture Cooperative)"
+						IF yLarCurrency EQ 'USD' THEN
+							yTotBalAgrUSD = yTotBalAgrUSD + yWorkingBal 
+							countUSDAgr = countUSDAgr + 1
+							IF countUSDAgr EQ '' THEN
+									countUSDAgr = '0'
+								END
+						END ELSE
+							IF yLarCurrency EQ 'EUR' THEN
+								yTotBalAgrEUR = yTotBalAgrEUR + yWorkingBal 
+								countEURAgr = countEURAgr + 1
+								IF countEURAgr EQ '' THEN
+									countEURAgr = '0'
+								END
+							END ELSE
+								IF yLarCurrency EQ 'EGP' THEN
+									yTotBalAgrEGP = yTotBalAgrEGP + yWorkingBal 
+									countEGPAgr = countEGPAgr + 1
+								IF countEGPAgr EQ '' THEN
+									countEGPAgr = '0'
+								END
+								END
+							END
+						END											
+					CASE yIndustry EQ '1004'
+						yBenType = "Cooperative (Land Reclamation)"
+						IF yLarCurrency EQ 'USD' THEN
+							yTotBalLandUSD = yTotBalLandUSD + yWorkingBal 
+							countUSDLand = countUSDLand + 1
+							IF countUSDLand EQ '' THEN
+									countUSDLand = '0'
+								END
+						END ELSE
+							IF yLarCurrency EQ 'EUR' THEN
+								yTotBalLandEUR = yTotBalLandEUR + yWorkingBal 
+								countEURLand = countEURLand + 1
+								IF countEURLand EQ '' THEN
+									countEURLand = '0'
+								END
+							END ELSE
+								IF yLarCurrency EQ 'EGP' THEN
+									yTotBalLandEGP = yTotBalLandEGP + yWorkingBal 
+									countEGPLand = countEGPLand + 1
+									IF countEGPLand EQ '' THEN
+									countEGPLand = '0'
+								END
+								END
+							END
+						END											
+					CASE yIndustry EQ '1002'
+						yBenType = "Cooperative (Animal Wealth)"
+						IF yLarCurrency EQ 'USD' THEN
+							yTotBalAnimalUSD = yTotBalAnimalUSD + yWorkingBal 
+							countUSDAnimal = countUSDAnimal + 1
+							IF countUSDAnimal EQ '' THEN
+									countUSDAnimal = '0'
+								END
+						END ELSE
+							IF yLarCurrency EQ 'EUR' THEN
+								yTotBalAnimalEUR = yTotBalAnimalEUR + yWorkingBal 
+								countEURAnimal = countEURAnimal + 1
+								IF countEURAnimal EQ '' THEN
+									countEURAnimal = '0'
+								END
+							END ELSE
+								IF yLarCurrency EQ 'EGP' THEN
+									yTotBalAnimalEGP = yTotBalAnimalEGP + yWorkingBal 
+									countEGPAnimal = countEGPAnimal + 1
+									IF countEGPAnimal EQ '' THEN
+									countEGPAnimal = '0'
+								END
+								END
+							END
+						END											
+					CASE yIndustry EQ '1005'
+						yBenType = "Cooperative (Other)"
+						IF yLarCurrency EQ 'USD' THEN
+							yTotBalOthUSD = yTotBalOthUSD + yWorkingBal 
+							countUSDOth = countUSDOth + 1
+							IF countUSDOth EQ '' THEN
+									countUSDOth = '0'
+								END
+						END ELSE
+							IF yLarCurrency EQ 'EUR' THEN
+								yTotBalOthEUR = yTotBalOthEUR + yWorkingBal 
+								countEUROth = countEUROth + 1
+								IF countEUROth EQ '' THEN
+									countEUROth = '0'
+								END
+							END ELSE
+								IF yLarCurrency EQ 'EGP' THEN
+									yTotBalOthEGP = yTotBalOthEGP + yWorkingBal 
+									countEGPOth = countEGPOth + 1
+									IF countEGPOth EQ '' THEN
+									countEGPOth = '0'
+								END
+								END
+							END
+						END
+						CASE yIndustry EQ '1012'
+							yBenType = "Cooperative (Central Coop Society)"
+							IF yLarCurrency EQ 'USD' THEN
+								yTotBalSocUSD = yTotBalSocUSD + yWorkingBal 
+								countUSDSoc = countUSDSoc + 1
+								IF countUSDSoc EQ '' THEN
+									countUSDSoc = '0'
+								END
+							END ELSE
+								IF yLarCurrency EQ 'EUR' THEN
+									yTotBalSocEUR = yTotBalSocEUR + yWorkingBal 
+									countEURSoc = countEURSoc + 1
+									IF countEURSoc EQ '' THEN
+									countEURSoc = '0'
+								END
+								END ELSE
+									IF yLarCurrency EQ 'EGP' THEN
+										yTotBalSocEGP = yTotBalSocEGP + yWorkingBal 
+										countEGPSoc = countEGPSoc + 1
+										IF countEGPSoc EQ '' THEN
+									countEGPSoc = '0'
+								END
+									END
+								END
+							END																						
+				END CASE				
+			END 
+			
+		REPEAT
+		
+		IF yIndFlag EQ 'Y' THEN
+			yIndData<-1> = "Individual - Males" : "*" : countUSDMale : "*" : yTotBalMaleUSD : "*" : countEURMale : "*" : yTotBalMaleEUR : "*" : countEGPMale : "*" : yTotBalMaleEGP
+			yIndData<-1> = "Individual - Females" : "*" : countUSDFemale : "*" : yTotBalFemaleUSD : "*" : countEURFemale : "*" : yTotBalFemaleEUR : "*" : countEGPFemale : "*" : yTotBalFemaleEGP
+			
+			countUSDInd = countUSDMale + countUSDFemale
+			yTotBalIndUSD = yTotBalMaleUSD + yTotBalFemaleUSD
+			countEURInd = countEURMale + countEURFemale
+			yTotBalIndEUR = yTotBalMaleEUR + yTotBalFemaleEUR
+			countEGPInd = countEGPMale + countEGPFemale
+			yTotBalIndEGP = yTotBalMaleEGP + yTotBalFemaleEGP
+			
+			yIndData<-1> = "Total Individuals" : "*" : countUSDInd : "*" : yTotBalIndUSD : "*" : countEURInd : "*" : yTotBalIndEUR : "*" : countEGPInd : "*" : yTotBalIndEGP
+		END
+		IF yCompFlag EQ 'Y' THEN
+			yCompData<-1> = yBenType : "*" : countUSDComp : "*" : yTotBalCompUSD : "*" : countEURComp : "*" : yTotBalCompEUR : "*" : countEGPComp : "*" : yTotBalCompEGP
+		END
+		IF countUSDAgr EQ '' THEN 
+countUSDAgr = '0'
+END
+IF yTotBalAgrUSD EQ '' THEN 
+yTotBalAgrUSD = '0'
+END
+IF countEURAgr EQ '' THEN 
+countEURAgr = '0'
+END
+IF yTotBalAgrEUR EQ '' THEN 
+yTotBalAgrEUR = '0'
+END
+IF countEGPAgr EQ '' THEN 
+countEGPAgr = '0'
+END
+IF yTotBalAgrEGP EQ '' THEN	
+yTotBalAgrEGP	 = '0'
+END
+IF countUSDLand EQ '' THEN 
+countUSDLand = '0'
+END
+IF yTotBalLandUSD EQ '' THEN 
+yTotBalLandUSD = '0'
+END
+IF countEURLand EQ '' THEN 
+countEURLand = '0'
+END
+IF yTotBalLandEUR EQ '' THEN 
+yTotBalLandEUR = '0'
+END
+IF countEGPLand EQ '' THEN 
+countEGPLand = '0'
+END
+IF yTotBalLandEGP EQ '' THEN	
+yTotBalLandEGP	 = '0'
+END			
+IF countUSDAnimal EQ '' THEN
+countUSDAnimal  = '0'
+END
+IF yTotBalAnimalUSD EQ '' THEN
+yTotBalAnimalUSD  = '0'
+END
+IF countEURAnimal EQ '' THEN 
+countEURAnimal = '0'
+END
+IF yTotBalAnimalEUR EQ '' THEN 
+yTotBalAnimalEUR = '0'
+END
+IF countEGPAnimal EQ '' THEN 
+countEGPAnimal = '0'
+END
+IF yTotBalAnimalEGP EQ '' THEN	
+yTotBalAnimalEGP = '0'
+END	
+IF countUSDOth EQ '' THEN 
+countUSDOth = '0'
+END
+IF yTotBalOthUSD EQ '' THEN 
+yTotBalOthUSD = '0'
+END
+IF countEUROth EQ '' THEN
+countEUROth  = '0'
+END
+IF yTotBalOthEUR EQ '' THEN
+yTotBalOthEUR  = '0'
+END
+IF countEGPOth EQ '' THEN 
+countEGPOth = '0'
+END
+IF yTotBalOthEGP EQ '' THEN	
+yTotBalOthEGP	 = '0'
+END
+IF countUSDSoc EQ '' THEN 
+countUSDSoc = '0'
+END
+IF yTotBalSocUSD EQ '' THEN 
+yTotBalSocUSD = '0'
+END
+IF countEURSoc EQ '' THEN 
+countEURSoc = '0'
+END
+IF yTotBalSocEUR EQ '' THEN 
+yTotBalSocEUR = '0'
+END
+IF countEGPSoc EQ '' THEN 
+countEGPSoc = '0'
+END
+IF yTotBalSocEGP EQ '' THEN
+yTotBalSocEGP = '0'
+END
+		
+		IF yCoopFlag EQ 'Y' THEN
+			yCoopData<-1> = "Cooperative (Agriculture Cooperative)" : "*" : countUSDAgr : "*" : yTotBalAgrUSD : "*" : countEURAgr : "*" : yTotBalAgrEUR : "*" : countEGPAgr : "*" : yTotBalAgrEGP
+			
+			yCoopData<-1> = "Cooperative (Land Reclamation)" : "*" : countUSDLand : "*" : yTotBalLandUSD : "*" : countEURLand : "*" : yTotBalLandEUR : "*" : countEGPLand : "*" : yTotBalLandEGP			
+			
+			yCoopData<-1> = "Cooperative (Animal Wealth)" : "*" : countUSDAnimal : "*" : yTotBalAnimalUSD : "*" : countEURAnimal : "*" : yTotBalAnimalEUR : "*" : countEGPAnimal : "*" : yTotBalAnimalEGP
+			
+			yCoopData<-1> = "Cooperative (Other)" : "*" : countUSDOth : "*" : yTotBalOthUSD : "*" : countEUROth : "*" : yTotBalOthEUR : "*" : countEGPOth : "*" : yTotBalOthEGP
+			
+			yCoopData<-1> = "Cooperative (Central Coop Society)" : "*" : countUSDSoc : "*" : yTotBalSocUSD : "*" : countEURSoc : "*" : yTotBalSocEUR : "*" : countEGPSoc : "*" : yTotBalSocEGP
+			
+			countUSDCoop = countUSDAgr + countUSDLand + countUSDAnimal + countUSDOth + countUSDSoc
+			yTotBalCoopUSD = yTotBalAgrUSD + yTotBalLandUSD + yTotBalAnimalUSD + yTotBalOthUSD + yTotBalSocUSD
+			countEURCoop = countEURAgr + countEURLand + countEURAnimal + countEUROth + countEURSoc
+			yTotBalCoopEUR = yTotBalAgrEUR + yTotBalLandEUR + yTotBalAnimalEUR + yTotBalOthEUR + yTotBalSocEUR
+			countEGPCoop = countEGPAgr + countEGPLand + countEGPAnimal + countEGPOth + countEGPSoc
+			yTotBalCoopEGP = yTotBalAgrEGP + yTotBalLandEGP + yTotBalAnimalEGP + yTotBalOthEGP + yTotBalSocEGP
+			
+			
+			END
+
+
+    REPEAT
+				IF countUSDCompVSE EQ '' THEN 
+			countUSDCompVSE = '0'
+			END
+			IF yTotBalCompUSDVSE EQ '' THEN 
+			yTotBalCompUSDVSE = '0'
+			END
+			IF countEURCompVSE EQ '' THEN 
+			countEURCompVSE = '0'
+			END
+			IF yTotBalCompEURVSE EQ '' THEN 
+			yTotBalCompEURVSE = '0'
+			END
+			IF countEGPCompVSE EQ '' THEN 
+			countEGPCompVSE = '0'
+			END
+			IF yTotBalCompEGPVSE EQ '' THEN 
+			yTotBalCompEGPVSE = '0'
+			END
+			IF countUSDCompMICROE EQ '' THEN 
+			countUSDCompMICROE = '0'
+			END
+			IF yTotBalCompUSDMICROE EQ '' THEN 
+			yTotBalCompUSDMICROE = '0'
+			END
+			IF countEURCompMICROE EQ '' THEN
+			countEURCompMICROE  = '0'
+			END
+			IF yTotBalCompEURMICROE EQ '' THEN 
+			yTotBalCompEURMICROE = '0'
+			END
+			IF countEGPCompMICROE EQ '' THEN 
+			countEGPCompMICROE = '0'
+			END
+			IF yTotBalCompEGPMICROE EQ '' THEN 
+			yTotBalCompEGPMICROE = '0'
+			END
+			IF countUSDCompSE EQ '' THEN 
+			countUSDCompSE = '0'
+			END
+			IF yTotBalCompUSDSE EQ '' THEN 
+			yTotBalCompUSDSE = '0'
+			END
+			IF countEURCompSE EQ '' THEN
+			countEURCompSE  = '0'
+			END
+			IF yTotBalCompEURSE EQ '' THEN 
+			yTotBalCompEURSE = '0'
+			END
+			IF countEGPCompSE EQ '' THEN 
+			countEGPCompSE = '0'
+			END
+			IF yTotBalCompEGPSE EQ '' THEN 
+			yTotBalCompEGPSE = '0'
+			END
+			IF countUSDCompME EQ '' THEN 
+			countUSDCompME = '0'
+			END
+			IF yTotBalCompUSDME EQ '' THEN 
+			yTotBalCompUSDME = '0'
+			END
+			IF countEURCompME EQ '' THEN 
+			countEURCompME = '0'
+			END
+			IF yTotBalCompEURME EQ '' THEN
+			yTotBalCompEURME  = '0'
+			END
+			IF countEGPCompME EQ '' THEN 
+			countEGPCompME = '0'
+			END
+			IF yTotBalCompEGPME EQ '' THEN 
+			yTotBalCompEGPME = '0'
+			END
+			IF countUSDCompLE EQ '' THEN 
+			countUSDCompLE = '0'
+			END
+			IF yTotBalCompUSDLE EQ '' THEN 
+			yTotBalCompUSDLE = '0'
+			END
+			IF countEURCompLE EQ '' THEN 
+			countEURCompLE = '0'
+			END
+			IF yTotBalCompEURLE EQ '' THEN 
+			yTotBalCompEURLE = '0'
+			END
+			IF countEGPCompLE EQ '' THEN 
+			countEGPCompLE = '0'
+			END
+			IF yTotBalCompEGPLE EQ '' THEN 
+			yTotBalCompEGPLE = '0'
+			END
+			IF yTotBalCompUSDOTCOMP EQ '' THEN 
+			yTotBalCompUSDOTCOMP = '0'
+			END
+			IF countEURCompOTCOMP EQ '' THEN
+			countEURCompOTCOMP  = '0'
+			END
+			IF yTotBalCompEUROTCOMP EQ '' THEN 
+			yTotBalCompEUROTCOMP = '0'
+			END
+			IF countEGPCompOTCOMP EQ '' THEN 
+			countEGPCompOTCOMP = '0'
+			END
+			IF yTotBalCompEGPOTCOMP EQ '' THEN
+			yTotBalCompEGPOTCOMP = '0'
+			END
+			
+	yCompData<-1> = "Verry Small Entrerprise" : "*" : countUSDCompVSE : "*" : yTotBalCompUSDVSE : "*" : countEURCompVSE : "*" : yTotBalCompEURVSE : "*" : countEGPCompVSE : "*" : yTotBalCompEGPVSE
+	yCompData<-1> = "Micro Entreprise" : "*" : countUSDCompMICROE : "*" : yTotBalCompUSDMICROE : "*" : countEURCompMICROE : "*" : yTotBalCompEURMICROE : "*" : countEGPCompMICROE : "*" : yTotBalCompEGPMICROE
+	yCompData<-1> = "Small Entreprise" : "*" : countUSDCompSE : "*" : yTotBalCompUSDSE : "*" : countEURCompSE : "*" : yTotBalCompEURSE : "*" : countEGPCompSE : "*" : yTotBalCompEGPSE
+	yCompData<-1> = "Medium Entreprise" : "*" : countUSDCompME : "*" : yTotBalCompUSDME : "*" : countEURCompME : "*" : yTotBalCompEURME : "*" : countEGPCompME : "*" : yTotBalCompEGPME
+	yCompData<-1> = "Large Entreprise" : "*" : countUSDCompLE : "*" : yTotBalCompUSDLE : "*" : countEURCompLE : "*" : yTotBalCompEURLE : "*" : countEGPCompLE : "*" : yTotBalCompEGPLE
+	yCompData<-1> = "Other Companies" : "*" : yTotBalCompUSDOTCOMP : "*" : yTotBalCompUSDOTCOMP : "*" : countEURCompOTCOMP : "*" : yTotBalCompEUROTCOMP : "*" : countEGPCompOTCOMP : "*" : yTotBalCompEGPOTCOMP
+
+	yTotCountCompUSD = countUSDCompVSE + countUSDCompMICROE +  countUSDCompSE + countUSDCompME + countUSDCompLE + yTotBalCompUSDOTCOMP
+	yTotCompUSD = yTotBalCompUSDVSE + yTotBalCompUSDMICROE + yTotBalCompUSDSE + yTotBalCompUSDME + yTotBalCompUSDLE + yTotBalCompUSDOTCOMP
+	yTotCountCompEUR = countEURCompVSE + countEURCompMICROE + countEURCompSE + countEURCompME + countEURCompLE + countEURCompOTCOMP
+	yTotCompEUR = yTotBalCompEURVSE + yTotBalCompEURMICROE + yTotBalCompEURSE + yTotBalCompEURME + yTotBalCompEURLE + yTotBalCompEUROTCOMP
+	yTotCountCompEGP = countEGPCompVSE + countEGPCompMICROE + countEGPCompSE + countEGPCompME + countEGPCompLE + countEGPCompOTCOMP
+	yTotCompEGP = yTotBalCompEGPVSE + yTotBalCompEGPMICROE + yTotBalCompEGPSE + yTotBalCompEGPME + yTotBalCompEGPLE + yTotBalCompEGPOTCOMP
+	
+
+
+	yCompData<-1> = "Total Companies" : "*" : yTotCountCompUSD : "*" : yTotCompUSD : "*" : yTotCountCompEUR : "*" : yTotCompEUR : "*" : yTotCountCompEGP : "*" : yTotCompEGP
+	
+	RETURN.DATA<-1> = yIndData
+	RETURN.DATA<-1> = yCompData
+	RETURN.DATA<-1> = yCoopData
+	
+	countUSDAll = countUSDInd + yTotCountCompUSD + countUSDCoop
+	yTotBalAllUSD = yTotBalIndUSD + yTotCompUSD + yTotBalCoopUSD
+	countEURAll = countEURInd + yTotCountCompEUR + countEURCoop
+	yTotBalAllEUR = yTotBalIndEUR + yTotCompEUR + yTotBalCoopEUR
+	countEGPAll = countEGPInd + yTotCountCompEGP + countEGPCoop
+	yTotBalAllEGP = yTotBalIndEGP + yTotCompEGP + yTotBalCoopEGP
+	
+RETURN.DATA<-1> = "Total Cooperative" : "*" : countUSDCoop : "*" : yTotBalCoopUSD : "*" : countEURCoop : "*" : yTotBalCoopEUR : "*" : countEGPCoop : "*" : yTotBalCoopEGP
+	
+	
+	ycountUSD = countUSDCoop + countUSDInd + yTotCountCompUSD
+	yTotBalUSD = yTotBalCoopUSD + yTotBalIndUSD + yTotCompUSD
+	ycountEUR = countEURCoop + countEURInd + yTotCountCompEUR
+	yTotBalEUR = yTotBalCoopEUR + yTotBalIndEUR + yTotCompEUR
+	ycountEGP = countEGPCoop + countEGPInd + yTotCountCompEGP
+	yTotBalEGP = yTotBalCoopEGP + yTotBalIndEGP + yTotCompEGP
+ 
+RETURN.DATA<-1> = "Total Approved" : "*" : ycountUSD : "*" : yTotBalUSD : "*" : ycountEUR : "*" : yTotBalEUR : "*" : ycountEGP : "*" : yTotBalEGP
+
+GOSUB DEFAULT.VALUES
+
+
+RETURN
+
+***************	
+DEFAULT.VALUES:
+**************
+		
+		yIndFlag = 'N'
+		yCompFlag = 'N'
+		yCoopFlag = 'N'
+		
+		countUSDComp = 0; yTotBalCompUSD = 0; countEURComp = 0; yTotBalCompEUR = 0; countEGPComp = 0; yTotBalCompEGP = 0;
+	
+RETURN
