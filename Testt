@@ -1,152 +1,104 @@
 *-----------------------------------------------------------------------------
-SUBROUTINE VIR.FREE.MARKET.CODE.OVD
-****************************************************
-* 1. Author&Date created  : AHMED 20260707
-* 2. Site name            : CIB
-* 3. Product              : 
-* 4. Routine type         : VIR
-* 5. Installed            :
-* 6. E.V.B record         :
-***********************************************************************
-************************** PROGRAM DESCRIPTION ************************
-* 7. Description
-* --------------
-* Create an override in case the free market code is entered manually and does not match the original auto-generated FREE.MARKET.CODE.
-*
-* 8. Incoming arguments
-* ---------------------
-*
-* 9. Outgoing arguments
-* ---------------------
-*
-***********************************************************************
+* <Rating>-43</Rating>
+*-----------------------------------------------------------------------------
+    SUBROUTINE TAM.V.VAL.GET.MARKET.CODE
+*-------------------------------------------------------------------------
+* Company   Name    : cib
+* Developed By      : Temenos Application Management
+* Program   Name    : TAM.V.VAL.GET.MARKET.CODE
+*-----------------------------------------------------------------------------
+* Description      : This routine used to update the free market code in the teller
+* Attached To      : VERSION.CONTROL>TELLER
+* In Param         : NIL
+* Out Param        : NIL
+* ODR Reference    : ODR-2010-04-0371
+*                  : Also used in the ODR-2010-04-0377
+*-----------------------------------------------------------------------------
+**************************************************************************************
+**********
+* Modification History     Author
+* 27-Jul-2018              Ravikant              R18 Upgrade Code Retrofit
+*                                                MCBCS-20180727
+**********
+**************************************************************************************
+* Modification History
+* CSS Reference : HD1048720
+* Tunit ref     : N/A
+* Modified by   : Jasmine
+* Description   : routine created for this issue
+* Modified by Mahmoud 18/09/2024 to automate free market code depending on business criteria on TT,TAM.CURR.EXG.CASH.INPUT version
+*-----------------------------------------------------------------------------
+* Insert Files:
+*--------------
+$INSERT I_EQUATE
+$INSERT I_COMMON
+*$INSERT I_F.EGPL.PARAM.MARKET.CODE
+$INSERT I_F.ST.CIB.APP.VERSION
+$INSERT I_F.TELLER
+$INSERT I_F.CUSTOMER
+$INSERT I_F.EGPL.MARKET.INFO
+$INSERT I_TT.COMMON
+$INSERT I_F.TRANSACTION
+$INSERT I_F.ACCOUNT
 
-	$INSERT I_EQUATE
-	$INSERT I_COMMON
-	$INSERT I_F.ST.CIB.APP.VERSION
-	$INSERT I_F.TELLER
-	$INSERT I_F.CUSTOMER
-	$INSERT I_TT.COMMON
-	$INSERT I_F.TRANSACTION
-	$INSERT I_F.ACCOUNT
-	$INSERT I_F.LEGAL.ID.CONCAT
-	$INSERT I_F.ST.EGPL.PARAM.MARKET.CODE
-	
+*MAHMOUD 25/09/2024
+$INSERT I_F.LEGAL.ID.CONCAT
+$INSERT I_F.ST.EGPL.PARAM.MARKET.CODE
 
-	$INSERT I_F.ACCOUNT
-
-	
-	GOSUB INITIALISE
-	GOSUB VALIDATE.FREE.MARKET
-	GOSUB TT.MRT.CODE
-	
-	IF R.NEW(TT.TE.LOCAL.REF)<1,FREE.MARKT.CODE.POS> NE '' THEN
-         
-        IF Y.CCY.1 NE Y.CCY.2 THEN
-            IF R.NEW(TT.TE.LOCAL.REF)<1,FREE.MARKT.CODE.POS> NE Y.MARKET.CODE THEN
-                Y.TEXT.PART = " " : Y.MARKET.CODE
-                TEXT = "TT.FMRKT.CODE" :FM: Y.TEXT.PART
-                OVERRIDE.CNT = DCOUNT(R.NEW(TT.TE.OVERRIDE), VM)
-                OVERRIDE.CNT = OVERRIDE.CNT + 1
-                CALL STORE.OVERRIDE(OVERRIDE.CNT)
-            END
-        END
-  
-	END
-
+*-----------------------------------------------------------------------------
+* Main Files:
+*------------
+    IF MESSAGE EQ 'VAL' THEN
+        GOSUB INITIALISE
+        GOSUB VALIDATE.FREE.MARKET
+        GOSUB TT.MRT.CODE
+    END
     RETURN
-
-*-----------------------------------------------------------------------------
-INITIALISE:
-*-----------------------------------------------------------------------------
-	FN.ST.EGPL.PARAM.MARKET.CODE = 'F.ST.EGPL.PARAM.MARKET.CODE'
-    F.ST.EGPL.PARAM.MARKET.CODE = ''
-    CALL OPF(FN.ST.EGPL.PARAM.MARKET.CODE, F.ST.EGPL.PARAM.MARKET.CODE)
-    
-	F.TELLER = ''
-    FN.TELLER = 'F.TELLER'
-    CALL OPF(FN.TELLER, F.TELLER)
-
-    F.CUSTOMER = ''
-    FN.CUSTOMER = 'F.CUSTOMER'
-    CALL OPF(FN.CUSTOMER,F.CUSTOMER)
-
-	FN.CIB.APP.VERSION = 'F.ST.CIB.APP.VERSION' ; F.CIB.APP.VERSION = ''
-    CALL OPF(FN.CIB.APP.VERSION,F.CIB.APP.VERSION)
-
-
-    F.ACCOUNT = '' ; FN.ACCOUNT = 'F.ACCOUNT'
-    CALL OPF(FN.ACCOUNT,F.ACCOUNT)
-
-    FLD.ARR='FREE.MARKT.CODE'
-    CALL MULTI.GET.LOC.REF('TELLER',FLD.ARR,FREE.MKT.CODE.POS.ARR)
-    FREE.MKT.CODE.POS=FREE.MKT.CODE.POS.ARR<1,1>
-	
-	APPLICATION.NAMES = 'TELLER'
-    LOCAL.FIELDS = 'FREE.MARKT.CODE'
-    FIELD.NUMBERS = ''
-    CALL MULTI.GET.LOC.REF(APPLICATION.NAMES, LOCAL.FIELDS, FIELD.NUMBERS)
-    FREE.MARKT.CODE.POS = FIELD.NUMBERS<1,1>
-    
-	RETURN
-*-----------------------------------------------------------------------------
-VALIDATE.FREE.MARKET:
-*********************
-	CALL F.READ(F.CIB.APP.VERSION,'TELLER',R.CIB.APP.VERSION,F.CIB.APP.VERSION,'')
-	VERSION.TELLER = 'TELLER':PGM.VERSION
-	VERSION.PARAM =  R.CIB.APP.VERSION<ST.AP.VER.VERSION>
-
-	CHANGE VM TO FM IN VERSION.PARAM
-	
-	LOCATE  VERSION.TELLER IN  VERSION.PARAM SETTING POS.FREE THEN
-		
-	END
-RETURN
-*******************************************************************************
 *-----------------------------------------------------------------------------
 TT.MRT.CODE:
 *-----------------------------------------------------------------------------
 
    Y.APPL = APPLICATION
-   CALL F.READ(FN.ST.EGPL.PARAM.MARKET.CODE,Y.APPL,R.MRT.CODE,F.ST.EGPL.PARAM.MARKET.CODE,'')
-	
-   Y.TRN.CODE = R.NEW(TT.TE.TRANSACTION.CODE)
-   Y.CCY.1 = R.NEW(TT.TE.CURRENCY.1)
-   Y.CCY.2 = R.NEW(TT.TE.CURRENCY.2)
-   
-   IF Y.CCY.1 EQ LCCY THEN
-       Y.CCY.1 = LCCY
-       Y.TRN.LCY = R.NEW(TT.TE.AMOUNT.LOCAL.1)
-   END ELSE
-	   Y.CCY.1 = 'FCY'
-	   Y.CURRENCY = R.NEW(TT.TE.CURRENCY.1)
-	   Y.TRN.FCY = R.NEW(TT.TE.AMOUNT.FCY.1)
-	   Y.EXG.RATE = R.NEW(TT.TE.RATE.1)
-   END
-   
-   IF Y.CCY.2 EQ LCCY THEN
-	   Y.CCY.2 = LCCY
-       Y.TRN.LCY = R.NEW(TT.TE.AMOUNT.LOCAL.2)
-   END ELSE
-       Y.CCY.2 = 'FCY'
-       Y.CURRENCY = R.NEW(TT.TE.CURRENCY.2)
-       Y.TRN.FCY = R.NEW(TT.TE.AMOUNT.FCY.2)
-       Y.EXG.RATE = R.NEW(TT.TE.RATE.2)
-   END
+   *MAHMOUD 25/09/2024
+    CALL F.READ(FN.ST.EGPL.PARAM.MARKET.CODE,Y.APPL,R.MRT.CODE,F.ST.EGPL.PARAM.MARKET.CODE,'')
+	*MAHMOUD 25/09/2024
+    Y.TRN.CODE = R.NEW(TT.TE.TRANSACTION.CODE)
+    Y.CCY.1 = R.NEW(TT.TE.CURRENCY.1)
+    Y.CCY.2 = R.NEW(TT.TE.CURRENCY.2)
 
-   I = 1
-   Y.FOUND = ''
-   LOOP
-	
-   WHILE R.MRT.CODE<ST.EPMC.TT.TRAN.CODE,I> DO
-		IF Y.TRN.CODE NE R.MRT.CODE<ST.EPMC.TT.TRAN.CODE,I> THEN
+    IF Y.CCY.1 EQ LCCY THEN
+        Y.CCY.1 = LCCY
+        Y.TRN.LCY = R.NEW(TT.TE.AMOUNT.LOCAL.1)
+    END ELSE
+        Y.CCY.1 = 'FCY'
+        Y.CURRENCY = R.NEW(TT.TE.CURRENCY.1)
+        Y.TRN.FCY = R.NEW(TT.TE.AMOUNT.FCY.1)
+        Y.EXG.RATE = R.NEW(TT.TE.RATE.1)
+    END
+
+    IF Y.CCY.2 EQ LCCY THEN
+        Y.CCY.2 = LCCY
+        Y.TRN.LCY = R.NEW(TT.TE.AMOUNT.LOCAL.2)
+    END ELSE
+        Y.CCY.2 = 'FCY'
+        Y.CURRENCY = R.NEW(TT.TE.CURRENCY.2)
+        Y.TRN.FCY = R.NEW(TT.TE.AMOUNT.FCY.2)
+        Y.EXG.RATE = R.NEW(TT.TE.RATE.2)
+    END
+
+    I = 1
+    Y.FOUND = ''
+    LOOP
+	*MAHMOUD 25/09/2024
+    WHILE R.MRT.CODE<ST.EPMC.TT.TRAN.CODE,I> DO
+        IF Y.TRN.CODE NE R.MRT.CODE<ST.EPMC.TT.TRAN.CODE,I> THEN
             I += 1
             CONTINUE
         END
         Y.TRUE.1 = Y.CCY.1 EQ R.MRT.CODE<ST.EPMC.CURRENCY.1,I>
         Y.TRUE.2 = Y.CCY.2 EQ R.MRT.CODE<ST.EPMC.CURRENCY.2,I>
-        
-		IF Y.TRUE.1 AND Y.TRUE.2 THEN
+	*MAHMOUD 25/09/2024
+        IF Y.TRUE.1 AND Y.TRUE.2 THEN
             Y.FOUND = 1
             BREAK
         END
@@ -156,38 +108,45 @@ TT.MRT.CODE:
     IF Y.FOUND THEN
 
         GOSUB GET.ACC.INDUSTRY
-		
+		*MAHMOUD 25/09/2024
         Y.SM.COUNT = DCOUNT(R.MRT.CODE<ST.EPMC.INDUSTRY,I>,SM)
-        
-		IF Y.SM.COUNT EQ 0 THEN
+		*MAHMOUD 25/09/2024
+        IF Y.SM.COUNT EQ 0 THEN
             Y.SM.COUNT = 1
         END
-        
-		FOR I.SM = 1 TO Y.SM.COUNT
-           IF Y.INDUSTRY EQ R.MRT.CODE<ST.EPMC.INDUSTRY,I,I.SM> THEN
+        FOR I.SM = 1 TO Y.SM.COUNT
+*MAHMOUD 25/09/2024
+            IF Y.INDUSTRY EQ R.MRT.CODE<ST.EPMC.INDUSTRY,I,I.SM> THEN
+*                R.NEW(TT.TE.LOCAL.REF)<1,FREE.MKT.CODE.POS> = R.MRT.CODE<ST.EPMC.MARKET.CODE,I,I.SM>
+*MAHMOUD 25/09/2024
+************AMEND HEND20221221***************************************
            
-				IF POS.FREE = '' THEN
-					Y.MARKET.CODE = R.MRT.CODE<ST.EPMC.MARKET.CODE,I,I.SM>
-				END 
-		  
-				IF PGM.VERSION EQ ',TAM.CURR.EXG.CASH.INPUT' THEN 
-					GOSUB AUTOMATE.MARKET.CODE
-				END
-                                
-				BREAK         ;* got it ..exit from loop
+           IF POS.FREE = '' THEN
+		   *MAHMOUD 25/09/2024
+                COMI = R.MRT.CODE<ST.EPMC.MARKET.CODE,I,I.SM>
+		   *MAHMOUD 25/09/2024
+           END 
+		   *MAHMOUD 18/09/2024
+		   IF PGM.VERSION EQ ',TAM.CURR.EXG.CASH.INPUT' THEN 
+		   GOSUB AUTOMATE.MARKET.CODE
+		   END
+		   *MAHMOUD 25/09/2024
+*************END20221221*************************************************
+                Y.TRN.TYPE = R.NEW(TT.TE.LOCAL.REF)<1,FREE.MKT.CODE.POS>
+                Y.BRANCH.CODE = R.NEW(TT.TE.DEPT.CODE)
+                GOSUB UPDATE.INFO
+                BREAK         ;* got it ..exit from loop
             END
         NEXT I.SM
 
     END
-    
-	RETURN
+    RETURN
 *-----------------------------------------------------------------------------
 GET.ACC.INDUSTRY:
 *-----------------------------------------------------------------------------
 
-	Y.INDUSTRY = ''
-    
-	IF R.TRANSACTION.1<AC.TRA.DEBIT.CREDIT.IND> EQ 'DEBIT' THEN
+ Y.INDUSTRY = ''
+    IF R.TRANSACTION.1<AC.TRA.DEBIT.CREDIT.IND> EQ 'DEBIT' THEN
         Y.DR.ACC = R.NEW(TT.TE.ACCOUNT.1)
     END ELSE
         Y.DR.ACC = R.NEW(TT.TE.ACCOUNT.2)
@@ -201,19 +160,119 @@ GET.ACC.INDUSTRY:
     END ELSE
         Y.INDUSTRY = ''
     END
-    
-	LOCATE Y.INDUSTRY IN R.MRT.CODE<ST.EPMC.INDUSTRY,I,1> SETTING SM.POS THEN
+*MAHMOUD 25/09/2024
+    LOCATE Y.INDUSTRY IN R.MRT.CODE<ST.EPMC.INDUSTRY,I,1> SETTING SM.POS THEN
+*MAHMOUD 25/09/2024
     END
     ELSE
         Y.INDUSTRY = ''       ;* if not defined then Y.INDUSTRY is set to null so as to get the defalut market code
     END
-    
-	RETURN
-
+    RETURN
 *-----------------------------------------------------------------------------
+UPDATE.INFO:
+*-----------------------------------------------------------------------------
+
+ CALL F.READ(FN.CUSTOMER,Y.CUST.NO,R.CUS,F.CUSTOMER,'')
+    Y.CUST.NAME = R.CUS<EB.CUS.NAME.1,1>
+
+    R.MRT.INFO<EMI.BRANCH.CODE> = Y.BRANCH.CODE
+    R.MRT.INFO<EMI.CURRENCY> = Y.CURRENCY
+    R.MRT.INFO<EMI.TRAN.TYPE> = Y.TRN.TYPE
+    R.MRT.INFO<EMI.TRN.AMT.FCY> = TRIM(FMT(ABS(Y.TRN.FCY),"R2#20"))
+    R.MRT.INFO<EMI.TRN.AMT.LCY> = TRIM(FMT(ABS(Y.TRN.LCY),"R2#20"))
+    R.MRT.INFO<EMI.DEAL.NO> = ID.NEW
+    R.MRT.INFO<EMI.EXCHANGE.RATE> = Y.EXG.RATE
+    R.MRT.INFO<EMI.CUSTOMER.NAME> = Y.CUST.NAME
+    R.MRT.INFO<EMI.CUSTOMER.NO> = Y.CUST.NO
+    R.MRT.INFO<EMI.PROCESSED> = 'N'
+    R.MRT.INFO<EMI.PROCESS.DATE> = TODAY
+
+    IF Y.CURRENCY NE 'USD' THEN
+        YLAMT = ABS(Y.TRN.LCY)
+        YFCY  = 'USD'
+        CALL MIDDLE.RATE.CONV.CHECK (YFAMT,YFCY,YRATE,YMARKET,YLAMT,YDIF.AMT,YDIF.PCT)
+        R.MRT.INFO<EMI.TRN.USD.AMT> = TRIM(FMT(YFAMT,"R2#20"))
+    END
+    CALL F.WRITE(FN.EGPL.MARKET.INFO,ID.NEW,R.MRT.INFO)
+    RETURN
+*-----------------------------------------------------------------------------
+INITIALISE:
+*-----------------------------------------------------------------------------
+*MAHMOUD 25/09/2024
+    *F.EGPL.PARAM.MARKET.CODE = ''
+    *FN.EGPL.PARAM.MARKET.CODE = 'F.EGPL.PARAM.MARKET.CODE'
+    *CALL OPF(FN.EGPL.PARAM.MARKET.CODE,F.EGPL.PARAM.MARKET.CODE)
+	
+	FN.ST.EGPL.PARAM.MARKET.CODE = 'F.ST.EGPL.PARAM.MARKET.CODE'
+    F.ST.EGPL.PARAM.MARKET.CODE = ''
+    CALL OPF(FN.ST.EGPL.PARAM.MARKET.CODE, F.ST.EGPL.PARAM.MARKET.CODE)
+*MAHMOUD 25/09/2024	
+    F.TELLER = ''
+    FN.TELLER = 'F.TELLER'
+    CALL OPF(FN.TELLER, F.TELLER)
+
+    F.CUSTOMER = ''
+    FN.CUSTOMER = 'F.CUSTOMER'
+    CALL OPF(FN.CUSTOMER,F.CUSTOMER)
+
+    F.EGPL.MARKET.INFO = ''
+    FN.EGPL.MARKET.INFO = 'F.EGPL.MARKET.INFO'
+    CALL OPF(FN.EGPL.MARKET.INFO,F.EGPL.MARKET.INFO)
+
+    F.ACCOUNT = '' ; FN.ACCOUNT = 'F.ACCOUNT'
+    CALL OPF(FN.ACCOUNT,F.ACCOUNT)
+
+    FN.CIB.APP.VERSION = 'F.ST.CIB.APP.VERSION' ; F.CIB.APP.VERSION = ''
+    CALL OPF(FN.CIB.APP.VERSION,F.CIB.APP.VERSION)
+	
+**TUT1021356/20100809-S
+    FLD.ARR='FREE.MARKT.CODE'
+    CALL MULTI.GET.LOC.REF('TELLER',FLD.ARR,FREE.MKT.CODE.POS.ARR)
+    FREE.MKT.CODE.POS=FREE.MKT.CODE.POS.ARR<1,1>
+**TUT1021356/20100809-E
+    RETURN
+*-----------------------------------------------------------------------------
+VALIDATE.FREE.MARKET:
+*********************
+FLAG = 'FALSE'
+CALL F.READ(F.CIB.APP.VERSION,'TELLER',R.CIB.APP.VERSION,F.CIB.APP.VERSION,'')
+VERSION.TELLER = 'TELLER':PGM.VERSION
+VERSION.PARAM =  R.CIB.APP.VERSION<ST.AP.VER.VERSION>
+
+CHANGE VM TO FM IN VERSION.PARAM
+LOCATE  VERSION.TELLER IN  VERSION.PARAM SETTING POS.FREE THEN
+ IF (COMI EQ '') THEN
+  IF ((R.NEW(TT.TE.CURRENCY.1) EQ 'EGP') AND (R.NEW(TT.TE.CURRENCY.2) NE 'EGP')) THEN
+  *MAHMOUD 25/09/2024
+    IF PGM.VERSION NE ',TAM.CURR.EXG.CASH.INPUT' THEN
+	*MAHMOUD 25/09/2024
+	AF = TT.TE.LOCAL.REF
+    AV = FREE.MKT.CODE.POS
+    ETEXT = " Free market code is Mandatory"
+    CALL STORE.END.ERROR
+    END
+	FLAG = 'TRUE'
+  END
+  IF ((R.NEW(TT.TE.CURRENCY.1) NE 'EGP') AND (R.NEW(TT.TE.CURRENCY.2) EQ 'EGP')) THEN
+  *MAHMOUD 25/09/2024
+  IF PGM.VERSION NE ',TAM.CURR.EXG.CASH.INPUT' THEN 
+  *MAHMOUD 25/09/2024
+   AF = TT.TE.LOCAL.REF
+   AV = FREE.MKT.CODE.POS
+   ETEXT = " Free market code is Mandatory"
+   CALL STORE.END.ERROR
+   END
+   FLAG = 'TRUE'
+END
+END
+END
+RETURN
+*******************************************************************************
+*MAHMOUD 18/09/2024
 AUTOMATE.MARKET.CODE:
 *************************
 
+IF COMI EQ '' THEN
 	GOSUB INITIALIS.LOCAL.REFS
     GOSUB READ.TELLER.RECORD
     GOSUB HANDLE.CURRENCY
@@ -221,26 +280,25 @@ AUTOMATE.MARKET.CODE:
     GOSUB GET.CUSTOMER.INFO
     GOSUB DETERMINE.CASE
     GOSUB PROCESS.MARKET.CODE
-    
+    GOSUB UPDATE.TELLER.RECORD
+	END
     RETURN
+
 
 *-----------------------------------------------------------------------------
 INITIALIS.LOCAL.REFS:
 *-----------------------------------------------------------------------------
-	F.LEGAL.ID.CONCAT = '' ; FN.LEGAL.ID.CONCAT = 'F.LEGAL.ID.CONCAT'
-    
-	CALL OPF(FN.LEGAL.ID.CONCAT,F.LEGAL.ID.CONCAT)
-
-	APPLICATION.NAMES = 'TELLER'
+F.LEGAL.ID.CONCAT = '' ; FN.LEGAL.ID.CONCAT = 'F.LEGAL.ID.CONCAT'
+    CALL OPF(FN.LEGAL.ID.CONCAT,F.LEGAL.ID.CONCAT)
+APPLICATION.NAMES = 'TELLER'
     LOCAL.FIELDS = 'LEGAL.ID':VM:'NATIONALITY'
     FIELD.NUMBERS = ''
-    
-	CALL MULTI.GET.LOC.REF(APPLICATION.NAMES, LOCAL.FIELDS, FIELD.NUMBERS)
-    
-	LEGAL.ID.POS = FIELD.NUMBERS<1,1>
+    CALL MULTI.GET.LOC.REF(APPLICATION.NAMES, LOCAL.FIELDS, FIELD.NUMBERS)
+    LEGAL.ID.POS = FIELD.NUMBERS<1,1>
 	NATIONALTY.POS= FIELD.NUMBERS<1,2>
-    
-	RETURN
+    RETURN
+
+
 *-----------------------------------------------------------------------------
 READ.TELLER.RECORD:
 *-----------------------------------------------------------------------------
@@ -249,8 +307,8 @@ READ.TELLER.RECORD:
     Y.CURRENCY.2 = R.NEW(TT.TE.CURRENCY.2)
     Y.LEGAL.ID = R.NEW(TT.TE.LOCAL.REF)<1,LEGAL.ID.POS>
 	Y.NATIONALITY = R.NEW(TT.TE.LOCAL.REF)<1,NATIONALTY.POS>
-    
-	RETURN
+    RETURN
+
 *-----------------------------------------------------------------------------
 HANDLE.CURRENCY:
 *-----------------------------------------------------------------------------
@@ -260,36 +318,33 @@ HANDLE.CURRENCY:
     IF Y.CURRENCY.2 NE 'EGP' THEN
         Y.CURRENCY.2 = 'FCY'
     END
-    
-	RETURN
+    RETURN
+
 *-----------------------------------------------------------------------------
 HANDLE.NATIONALITY:
 *-----------------------------------------------------------------------------	
 	IF Y.NATIONALITY NE 'EG' THEN
-		Y.NATIONALITY = 'NOEG'
-	END
-	
-	RETURN
+    Y.NATIONALITY = 'NOEG'
+END
+RETURN
 *-----------------------------------------------------------------------------
 GET.CUSTOMER.INFO:
 *-----------------------------------------------------------------------------
-	CALL F.READ(FN.LEGAL.ID.CONCAT, Y.LEGAL.ID, R.LEGAL.ID.CONCAT, F.LEGAL.ID.CONCAT, ERR.LEGAL.ID)
-	
-	IF R.LEGAL.ID.CONCAT THEN
-		Y.CUSTOMER.NO = R.LEGAL.ID.CONCAT<1>
-	END
-	ELSE
-		Y.CUSTOMER.NO = R.NEW(TT.TE.NARRATIVE.2)<1,1>
-	END
-	
-	CALL F.READ(FN.CUSTOMER, Y.CUSTOMER.NO, R.CUSTOMER, F.CUSTOMER, ERR.CUSTOMER)
-	
-	IF R.CUSTOMER THEN
-		Y.SECTOR = R.CUSTOMER<EB.CUS.SECTOR>
-		Y.INDUSTRY = R.CUSTOMER<EB.CUS.INDUSTRY>
-	END
+CALL F.READ(FN.LEGAL.ID.CONCAT, Y.LEGAL.ID, R.LEGAL.ID.CONCAT, F.LEGAL.ID.CONCAT, ERR.LEGAL.ID)
+IF R.LEGAL.ID.CONCAT THEN
+Y.CUSTOMER.NO = R.LEGAL.ID.CONCAT<1>
+END
+ELSE
+        Y.CUSTOMER.NO = R.NEW(TT.TE.NARRATIVE.2)<1,1>
+END
+        CALL F.READ(FN.CUSTOMER, Y.CUSTOMER.NO, R.CUSTOMER, F.CUSTOMER, ERR.CUSTOMER)
+        IF R.CUSTOMER THEN
+            Y.SECTOR = R.CUSTOMER<EB.CUS.SECTOR>
+            Y.INDUSTRY = R.CUSTOMER<EB.CUS.INDUSTRY>
+        END
 
     RETURN
+
 *-----------------------------------------------------------------------------
 DETERMINE.CASE:
 *-----------------------------------------------------------------------------
@@ -298,26 +353,31 @@ DETERMINE.CASE:
             Y.CASE = 1
         CASE R.CUSTOMER EQ ''
             Y.CASE = 2
+      *  CASE Y.CUSTOMER.NO AND Y.INDUSTRY EQ '458'
+      *     Y.CASE = 3
         CASE R.CUSTOMER AND Y.CURRENCY.1 EQ 'FCY' AND Y.CURRENCY.2 EQ 'EGP' AND Y.SECTOR NE '4100'
+		*AND Y.INDUSTRY NE '458' 
             Y.CASE = 3
+			
 		CASE R.CUSTOMER AND Y.CURRENCY.1 EQ 'EGP' AND Y.CURRENCY.2 EQ 'FCY' AND Y.SECTOR NE '4100'
+		*AND Y.INDUSTRY NE '458'
             Y.CASE = 4
+		
     END CASE
-	
     RETURN
+
 *-----------------------------------------------------------------------------
 PROCESS.MARKET.CODE:
 *-----------------------------------------------------------------------------
     CALL F.READ(FN.ST.EGPL.PARAM.MARKET.CODE, 'TELLER', R.EGPL.PARAM.MARKET.CODE, F.ST.EGPL.PARAM.MARKET.CODE, EGPL.ERR)
-    
-	IF R.EGPL.PARAM.MARKET.CODE THEN
+    IF R.EGPL.PARAM.MARKET.CODE THEN
         GOSUB FIND.MATCHING.MARKET.CODE
     END ELSE
         ETEXT = "Unable to read EGPL.PARAM.MARKET.CODE record"
         CALL STORE.END.ERROR
     END
-    
-	RETURN
+    RETURN
+
 *-----------------------------------------------------------------------------
 FIND.MATCHING.MARKET.CODE:
 *-----------------------------------------------------------------------------
@@ -333,17 +393,18 @@ FIND.MATCHING.MARKET.CODE:
             IF Y.MARKET.CODE THEN RETURN
         END
     NEXT I
-    
-	IF Y.MARKET.CODE EQ '' THEN
-		IF Y.CASE EQ '3' THEN
-			Y.MARKET.CODE = '1200'
-		END 
-		ELSE IF Y.CASE EQ '4' THEN
-			Y.MARKET.CODE = '6200'
-		END
+    IF Y.MARKET.CODE EQ '' THEN
+	IF Y.CASE EQ '3' THEN
+	Y.MARKET.CODE = '1200'
+	END 
+	ELSE IF Y.CASE EQ '4' THEN
+	Y.MARKET.CODE = '6200'
 	END
-	
+	END
+    * Default market code if no match found
+    *Y.MARKET.CODE = ''
     RETURN
+
 *-----------------------------------------------------------------------------
 PROCESS.CASE:
 *-----------------------------------------------------------------------------
@@ -373,17 +434,32 @@ PROCESS.CASE:
                 END
             CASE Y.CASE EQ 3 
                 IF Y.INDUSTRIES<J> EQ Y.INDUSTRY THEN
+*				AND Y.SECTORS<J> EQ Y.SECTOR THEN
                     Y.MARKET.CODE = Y.MARKET.CODES<J>
                     RETURN
-                END        
-			CASE Y.CASE EQ 4
+                END
+   * check        
+		   CASE Y.CASE EQ 4
 				IF Y.INDUSTRIES<J> EQ Y.INDUSTRY THEN
+*				AND Y.SECTORS<J> EQ Y.SECTOR THEN
 					Y.MARKET.CODE = Y.MARKET.CODES<J>
 					RETURN
 				END
+			*CASE Y.CASE EQ 5
+			*	IF Y.INDUSTRIES<J> EQ Y.INDUSTRY AND Y.SECTORS<J> EQ Y.SECTOR THEN
+			*		Y.MARKET.CODE = Y.MARKET.CODES<J>
+			*		RETURN
+			*	END	
         END CASE
     NEXT J
 	
     RETURN
+
 *-----------------------------------------------------------------------------
+UPDATE.TELLER.RECORD:
+*-----------------------------------------------------------------------------
+    COMI = Y.MARKET.CODE
+    RETURN
+*MAHMOUD 18/09/2024
+******************************
 END
