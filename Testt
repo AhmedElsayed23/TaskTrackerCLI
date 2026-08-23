@@ -1,29 +1,3 @@
+لا
 
-Subject: T24 Browser UI - Inconsistent DEL behavior on multivalue fields between VAR (field-level) and VIR (record-level) routines
-
-Hello,
-
-We are testing custom routines on the CUSTOMER application (version CUSTOMER,TAM.IND.AMEND) in T24 R20 / TAFJ, and observed inconsistent behavior when performing DEL on multivalue/local reference fields from routines attached at different points in the field lifecycle. We would like to confirm whether this is expected behavior or a defect, and if there is a recommended pattern for reshaping multivalue arrays that reflects immediately in the BrowserWeb UI.
-
-Environment:
-- T24 R20, TAFJ
-- Access channel: BrowserWeb (t24devtj@t24-dev-tafjapp)
-- Application: CUSTOMER
-- Version: CUSTOMER,TAM.IND.AMEND
-
-Scenario 1 - Field-level VAR routine (attached to a single field, e.g. PERCENTAGE or RELATION.CODE):
-When the routine performs DEL on a local reference multivalue group (e.g. JOINT.CUSTOMER / JOINT.PERCENTAGE under EB.CUS.LOCAL.REF) to remove a row, the change is correctly applied to the record on the backend, but the BrowserWeb grid widget continues to display the deleted row until the user holds the record and reopens it (forcing a full page redraw). A plain value assignment (R.NEW(...) = '') to the same field, by contrast, is reflected immediately without needing a reopen.
-
-Our understanding is that a field-level routine's response to the browser is a partial post-back (only the touched field/value is returned), which does not carry structural information about array reshaping, so the client-side grid does not know to remove or shift rows. Please confirm if this is the expected mechanism.
-
-Scenario 2 - Record-level VIR routine (fires once per record, after all fields have been built into R.NEW):
-We are currently testing whether DEL performed from a VIR-type routine - both on a local reference group and on a core multivalue field (RELATION.CODE / REL.CUSTOMER) - behaves the same way, or whether triggering STORE.END.ERROR (which redraws the error screen) forces a full record refresh that correctly reflects the DEL without requiring a hold/reopen.
-
-Questions for Temenos:
-1. Is the partial-post-back behavior described in Scenario 1 expected/documented behavior for field-level validation routines in BrowserWeb?
-2. Does a record-level (VIR) routine behave differently with respect to DEL on (a) local reference fields and (b) core multivalue fields, in terms of what gets reflected in the browser without a full reload?
-3. Is there a recommended/supported way to reshape (remove rows from) a multivalue or local reference array from within a routine so the change is reflected immediately in the BrowserWeb UI, without requiring the user to hold and reopen the record?
-
-Happy to provide the routine source and screen recordings of the behavior if useful.
-
-Thank you,
+When I use VIR routine the deletion done correctly from the Backend but kn the browser it's appearing deleted successfully but when I hold the record and try it to debug from the Backend or reopen it from the browser the old value still exists
