@@ -1,553 +1,1248 @@
-Service Analysis: Create Outward Transfer
-T24 R20/FT → TPH R25/IRIS API Migration Audit
+*-----------------------------------------------------------------------------
+* <Rating>7010</Rating>
+*-----------------------------------------------------------------------------
+    SUBROUTINE CIB.SIMULATE.CALC.FT(IN.PARAM,O.MSG)
+*********************************** AUDIT INFORMATION *************************
+* 1. Author&Date created  : NGDE20160830
+* 2. Site name            : CIB
+* 3. Product              :
+* 4. Routine type         :
+* 5. Installed            :
+* 6. E.V.B record         :
+********************************** PROGRAM DESCRIPTION ************************
+* 7. Description
+* -------------------
+*  An OFS in routine attached to an OFS source record to translate the message
+*  according to the message ID sent from the webservice
+*
+* 8. Incoming arguments
+* -------------------------------
+* a)
+*
+* 9. Outgoing arguments
+* -------------------------------
+*
+* 10. Modification history :
+* --------------------------
+*  Date             Author                Release Update
+*
+*  19-July-2018      Srikanth.M            R18 Upgrade Code Retrofit
+*                                          Reference: MCBCS-20180719
+* 20180704 --> FIX OVERRIDE AMOUNT
+*  08 June 2021      MCBC                  Code Fix for QC_422
+*                                          MCBC_QC422
+*******************************************************************************
+* Include files
+* MCBCS-20180719-S
+    $INSERT I_COMMON
+    $INSERT I_EQUATE
+    $INSERT I_F.ACCOUNT
+    $INSERT I_F.STANDARD.SELECTION
+    $INSERT I_F.CIB.API.LOG
+    $INSERT I_F.CIB.API.CONFIG.XML
+    $INSERT I_F.CIB.MSG.CONFIG
+    $INSERT I_GTS.COMMON
+* MCBCS-20180719-E
+*-----------------------------------------
+    GOSUB OPEN.FILES
+    GOSUB GET.VALUES
+    GOSUB PROCESS
+    GOTO PROGRAM.END
 
-Source Routine: CIB.OT.FT
-Type: OFS Wrapper Routine (Custom Call Routine)
-Current Version: T24 R20 / FT (OFS)
-Target: TPH R25 / IRIS API
-Used By (per code): Channels via CHNL.CODE — includes API, VOS, BPM, BB.MCP, and generic channels
-(channel-agnostic router)
-Service ID (SRVC.ID): 1006 — parsed from header segment 1 (or segment 1 of the '#'-delimited sub-header when
-HEADER.ID starts with 'XML') and stored against every CIB.API.FT record for this service
+*******************************************************************************
+OPEN.FILES:
+***********
+*------------------ CIB.API.CONFIG --------------------*
+    FN.CIB.MSG.CONFIG = 'F.CIB.MSG.CONFIG'
+    F.CIB.MSG.CONFIG = ''
+    CALL OPF(FN.CIB.MSG.CONFIG,F.CIB.MSG.CONFIG)
 
-Document Control
- Field                               Value
- Document Title                      Service Analysis — Create Outward Transfer (CIB.OT.FT)
- Version                             1.1
- Status                              Draft — pending peer review
- Prepared For                        T24 R20→R25 / FT→TPH Migration Programme
- Prepared Basis                      Static code review of CIB.OT.FT (as supplied)
- Last Updated                        23-Aug-2026
- Related Documents                   CIB.API.VALIDATE.FT audit (pending), CIB.API.OVERRIDE table export
-                                     (pending), ST.CIB.FI.FT.PARAM table export (pending)
+*------------------ CIB.API.CONFIG.XML --------------------*
+    FN.CIB.API.CONFIG.XML = 'F.CIB.API.CONFIG.XML'
+    F.CIB.API.CONFIG.XML = ''
+    CALL OPF(FN.CIB.API.CONFIG.XML,F.CIB.API.CONFIG.XML)
 
-Executive Summary
-CIB.OT.FT is a high-complexity, bespoke OFS orchestration routine with no direct 1:1 equivalent on TPH/IRIS. It
-combines input parsing, multi-layer business validation, config-table-driven rule branching (per channel and per
-customer industry), currency conversion, an idempotency cache, and post-posting auto-authorization. Migration risk
-is driven less by the OFS-to-API field mapping itself and more by the amount of business logic and control (limits,
-overdraft, restricted-industry posting blocks, auto-auth) currently embedded in Universe/BASIC code and config
-tables rather than in T24's native validation layer.
+    FN.ACCOUNT = 'F.ACCOUNT'
+    F.ACCOUNT = ''
+    CALL OPF(FN.ACCOUNT,F.ACCOUNT)
 
-Risk & Priority Rating
- Dimension                      Rating             Rationale
- Business Criticality           High               Handles live outward funds transfer posting — a core financial
-                                                   (money-movement) transaction
- Migration Complexity           High               51 input fields, 4 custom status codes, 8+ external routine
-                                                   dependencies, 4 config tables, channel-specific branching
- Control/Compliance             High               Contains overdraft authorization bypass, auto-authorization,
- Sensitivity                                       and industry-based posting restriction logic — all control-
-                                                   relevant
 
- Dimension                        Rating            Rationale
- Testing Priority                 P1 — test first   Financial transaction with multiple silent business-rule
-                                                    branches; regression coverage must include every channel
-                                                    (API, VOS, BPM, BB.MCP) and every status code path
 
-Service Description (Business View)
-"Create Outward Transfer" lets a customer or bank operator send money out of a CIB account to a beneficiary —
-whether that beneficiary holds an account at CIB, at another bank locally, or at a bank abroad. It covers the everyday
-"send money" journey behind channels such as internet/mobile banking, the corporate/business banking portal
-(BB.MCP), branch/teller-assisted transfers (BPM), and other API-driven integrations (VOS and generic API
-clients).
-In plain terms, when this service is called it:
-    ●     Confirms the request hasn't already been processed (protects against double-submission, e.g. a channel
-          retry or network timeout causing the same payment to be sent twice).
-     ● Checks whether the requesting channel or transaction type is currently allowed to transact (e.g. temporarily
-          blocked channels, restricted transaction types).
-     ● For certain business/corporate customers, checks whether their industry or account is subject to a posting
-          restriction (e.g. a customer flagged for enhanced control who cannot self-initiate certain payments) and
-          blocks the transfer with an explanation if so.
-     ● Confirms the customer has enough available funds to cover the transfer — converting currency if the
-          account and the transfer are in different currencies — and, depending on the channel's configuration, may
-          allow the transfer to proceed into an overdraft with a hold for review rather than rejecting it outright.
-     ● Validates the beneficiary's account/IBAN and correctly identifies the beneficiary's bank, intermediary bank,
-          and any routing details needed to route the payment domestically or internationally (including SWIFT-style
-          MT/MX name formatting for cross-border payments).
-     ● Works out who pays the transfer charges (the sender, the beneficiary, or shared) and applies the correct
-          commission code and amount.
-     ● Submits the payment for posting in the core banking ledger and, where the channel is configured to allow
-          it, automatically authorizes the transaction so the customer doesn't need to wait for a second banker to
-          approve it.
-     ● Sends back a clear outcome to the channel: success with a reference number, or a rejection with a specific
-          reason (insufficient funds, restricted, blocked, etc.) that the channel can show to the customer.
-Who uses it: retail and corporate customers initiating transfers via digital channels, and CIB staff/branch systems
-initiating transfers on a customer's behalf. Typical triggers: "Send Money" / "Transfer Funds" / "International
-Wire" actions in the mobile app, internet banking, the Business Banking portal, or a partner system integrating via
-API.
+*/////////////////// CIB.API.FT//////////////////////////////////
 
-1. Purpose
-Takes a pipe-delimited (|) flat string (I.PARAM) built by the channel, parses it into ~45 fields, builds an OFS record,
-and posts it to FUNDS.TRANSFER via OFS.BULK.MANAGER. Returns a pipe-delimited response (O.MSG) with
-status code, FT ID, raw OFS record, paid amount, and overrides.
-This is not a T24 standard API — it's a bespoke OFS orchestration wrapper. This is exactly the kind of routine that
-has no direct 1:1 equivalent in IRIS APIs, so it needs careful field-by-field and rule-by-rule mapping.
+    FN.CIB.API.LOG = 'F.CIB.API.LOG'
+    F.CIB.API.LOG = ''
+    CALL OPF(FN.CIB.API.LOG,F.CIB.API.LOG)
 
-2. Input Contract (I.PARAM — positional, pipe-delimited)
-Not every field taken from the input is written into the OFS record posted to FUNDS.TRANSFER. The "Posted to
-OFS?" column below shows exactly what happens to each field: some are posted as ledger data, some only flow into
-the OFS service-call header, some are used purely for internal validation/control-flow and never posted at all, and
-a few show no downstream reference in this routine and need verification before being assumed safe to drop.
+    RETURN
+*******************************************************************************
+PROCESS:
+********
+    O.MSG = ""
+    POS = ""
+    GOSUB GET.COMMON.VALUES
+    GOSUB CHECK.MSG.ID
+* MCBCS-20180716-S
+*    IF EXTERNAL.REF.FLAG = "TRUE" THEN
+    IF EXTERNAL.REF.FLAG EQ "TRUE" THEN
+* MCBCS-20180716-E
+        GOSUB CHECK.EXTRNAL.REF
+    END
+* MCBCS-20180716-S
+*    IF O.MSG = "" THEN
+    IF O.MSG EQ "" THEN
+* MCBCS-20180716-E
+        GOSUB CREATE.OFS.MSG
+    END
+    O.MSG = HEADER.ID:"#":RETURN.CODE:"#|":O.MSG
 
- #      Field                 Posted to OFS?               Notes
- Hea    SRVC.ID#CHNL.         Posted (OFS                  Used to key CIB.API.FT audit record and drive channel-
- der    CODE#MSG.ID#T         header/routing only)         config lookups; not itself an OFS data field
-        OKEN.ID
- 1      TXN.TYPE              NOT posted — control-        Used only as input to CIB.API.VALIDATE.FT
-                              flow/validation only         restriction check — never written to the OFS record
- 2      BOOK.DATE             NOT posted —                 Parsed but no further reference found downstream —
-                              unreferenced                 verify: dead field, or used in logic not shown here
-                              downstream (verify)
- 3      VALUE.DATE            Posted to OFS (data          → CREDIT.VALUE.DATE (defaults to TODAY if
-                              field)                       blank)
- 4      BRANCH.CODE           Posted (OFS                  Used in the OFS header/routing segment of
-                              header/routing only)         OFSRECORD, not as a named FT field
- 5      PROFIT.CNTR           NOT posted —                 Split into PROFIT.CNTR.CUST/PROFIT.CNTR.DEBT
-                              unreferenced                 but neither variable is referenced again downstream —
-                              downstream (verify)          verify
- 6      SRC.ACC.ID            Posted to OFS (data          → DEBIT.ACCT.NO; also drives available-balance
-                              field)                       calculation
- 7      SRC.CURR              Posted to OFS (data          → CREDIT.CURRENCY; also used for cross-currency
-                              field)                       check
- 8      SRC.AMT               Posted to OFS (data          → CREDIT.AMOUNT; also used in the available-
-                              field)                       balance comparison
- 9      SRC.NARR              NOT posted —                 Parsed but no further reference found downstream —
-                              unreferenced                 verify
-                              downstream (verify)
- 10     BEN.NAME              Posted to OFS (data          → BEN.CUSTOMER (multi-part, MT→MX
-                              field)                       transliteration for non-EGP)
- 11     BEN.ACC               Posted to OFS (data          → IBAN.BEN or BEN.ACCT.NO depending on IBAN
-                              field)                       validation result
- 12–    BEN.ADDR.1/2/3        NOT posted —                 Parsed but no further reference found downstream —
- 14                           unreferenced                 verify
-                              downstream (verify)
- 15     CHARGE.IND            NOT posted —                 Parsed but no further reference found downstream —
-                              unreferenced                 verify
-                              downstream (verify)
- 16     BEN.BK.NAME           NOT posted —                 Parsed but no further reference found downstream —
-                              unreferenced                 verify (only BEN.BIC.CD is actually posted)
-                              downstream (verify)
- 17     BEN.BIC.CD            Posted to OFS (data          → BNK.NME.57
+    RETURN
+*****************************************************************************
+CHECK.EXTRNAL.REF:
+******************
+    CALL F.READ(FN.APP.NAME.NAU,Y.RECORD.ID,R.APP.NAME.NAU,F.APP.NAME.NAU,ERR1)
+    IF R.APP.NAME.NAU THEN
+        CALL F.READ(FN.STANDARD.SELECTION,Y.APP.NAME,R.STANDARD.SELECTION,F.STANDARD.SELECTION,S_ERR)
+        TEMP.TAG.VALUE = "LOCAL.REF"
+        CALL FIELD.NAMES.TO.NUMBERS(TEMP.TAG.VALUE,R.STANDARD.SELECTION,FIELD.NO,YYAF,YYAV,YYAS,DATA.TYPE,ERR.MSG)
+* MCBCS-20180719-S
+        LOCAL.APPLICATION = 'Y.APP.NAME'
+        LOCAL.FIELD = 'EXTERNAL.REF':VM:'CHANNEL.CODE'
+        LOCAL.POSITION = ''
+        CALL MULTI.GET.LOC.REF(LOCAL.APPLICATION,LOCAL.FIELD,LOCAL.POSITION)
+        Y.MV.POS = LOCAL.POSITION<1,1>
+        Y.MV.POS.1  = LOCAL.POSITION<1,2>
 
-#    Field           Posted to OFS?               Notes
-                     field)
-18   BEN.BK.SORT.C   NOT posted —                 Parsed but no further reference found downstream —
-     D               unreferenced                 verify
-                     downstream (verify)
-19   BEN.BK.BRANC    NOT posted —                 Parsed but no further reference found downstream —
-     H               unreferenced                 verify
-                     downstream (verify)
-20   BEN.BK.BRN.CD   NOT posted —                 Parsed but no further reference found downstream —
-                     unreferenced                 verify
-                     downstream (verify)
-21   BEN.NARRATIV    NOT posted —                 Parsed but no further reference found downstream —
-     E               unreferenced                 verify (distinct from FT.NARRATIVE, which IS posted)
-                     downstream (verify)
-22   BEN.OUR.CHAR    Posted to OFS (data          Posted as-is; also drives COMMISSION.CODE
-     GES             field)                       derivation logic
-23   COMMISSION.C    Posted to OFS (data          Posted, but may be overwritten/cleared by the
-     ODE             field)                       OUR/BEN/SHA + account-length rule
-24   COMMISSION.T    Posted to OFS (data          → COMMISSION.TYPE:n (looped, multivalue)
-     YPE             field)
-25   COMMISSION.A    Posted to OFS (data          → COMMISSION.AMT:n (looped, paired with above)
-     MOUNT           field)
-26   GTS.CONTROL     Posted (OFS                  Used in the OFS header/routing segment of
-                     header/routing only)         OFSRECORD, not as a named FT field
-27   AUTH.FLAG       Posted (OFS                  Used in the OFS header/routing segment; also drives
-                     header/routing only)         control-flow (overwritten to 1 if AUTH.FLAG.NEW
-                                                  set)
-28   OD.TYPE         NOT posted — control-        Control-flow only — gates the balance check
-                     flow/validation only         (AVAL.BALANCE >= SRC.AMT OR OD.TYPE='Y');
-                                                  never written to OFS
-29   ORDERING.CUS    Posted to OFS (data          → ORDERING.CUST:n (looped) and
-     T               field)                       ORD.CUST.ACCT
-30   ORDERING.BAN    Posted AND repurposed        → ORDERING.BANK:n (posted); also silently
-     K               for control-flow (dual-      repurposed as the AUTH.FLAG.NEW source when no
-                     use)                         channel override routine fires — a dual-use field
-31   CREDIT.ACCT.N   Posted to OFS (data          Posted as-is
-     O               field)
-32   CUSTOMER.SPR    NOT posted —                 Parsed but no further reference found downstream —
-     EAD             unreferenced                 verify
-                     downstream (verify)
-33   CUSTOMER.RAT    Posted to OFS (data          Posted; zeroed out if channel = BPM and value = 0
-     E               field)
-34   FREE.MARKT.C    Posted to OFS (data          Posted as-is
-     ODE             field)
+*CALL GET.LOC.REF(Y.APP.NAME,"EXTERNAL.REF",Y.MV.POS)
+        EXT.REF.VALUE =  R.APP.NAME.NAU<FIELD.NO,Y.MV.POS>
+*CALL GET.LOC.REF(Y.APP.NAME,"CHANNEL.CODE",Y.MV.POS)
+        CHNL.CODE.VALUE = R.APP.NAME.NAU<FIELD.NO,Y.MV.POS.1>
+* MCBCS-20180719-E
+        TEMP.TAG.VALUE = "INPUTTER"
+* MCBCS-20180716-S
+*        IF Y.EXTERNAL.REF.NEW <> EXT.REF.VALUE THEN
+        IF Y.EXTERNAL.REF.NEW NE EXT.REF.VALUE THEN
+* MCBCS-20180716-E
+            RETURN.CODE = "5000"
+            OFSRECORD = "EXTERNAL REF DIFFERENT FROM LAST AMEND"
+            GOSUB CREATE.RESPONSE
+            RETURN
+        END
+* MCBCS-20180716-S
+*        IF CHNL.CODE.VALUE <> CHNL.CODE THEN
+        IF CHNL.CODE.VALUE NE CHNL.CODE THEN
+* MCBCS-20180716-E
+            RETURN.CODE = "5000"
+            OFSRECORD = "CHANNEL CODE DIFFERENT FROM LAST AMEND"
+            GOSUB CREATE.RESPONSE
+            RETURN
+        END
+        FIELD.NO = ''
+        CALL FIELD.NAMES.TO.NUMBERS(TEMP.TAG.VALUE,R.STANDARD.SELECTION,FIELD.NO,YYAF,YYAV,YYAS,DATA.TYPE,ERR.MSG)
+        INPT.USER = R.APP.NAME.NAU<FIELD.NO>
+* MCBCS-20180716-S
+*        IF COUNT(INPT.USER,'OFS.SERVICE.ID' ) = 0 THEN
+        IF COUNT(INPT.USER,'OFS.SERVICE.ID' ) EQ 0 THEN
+* MCBCS-20180716-E
+            CUR.STATUS = "5000"
+            OFSRECORD = "DIFFERENT USERS FROM LAST AMEND"
+            GOSUB CREATE.RESPONSE
+            RETURN
+        END
+    END
 
- #      Field                  Posted to OFS?                Notes
- 35     FT.NARRATIVE           Posted to OFS (data           → DEBIT.THEIR.REF
-                               field)
- 36     INTERMED.BAN           Posted to OFS (data           → INTERMED.BANK.ACC
-        K.ACCT                 field)
- 37     INTERMED.BAN           Posted to OFS (data           → INTERMED.BANK:n (looped)
-        K                      field)
- 38     ACCT.WITH.BAN          Posted to OFS (data           Posted as-is
-        K.ACC                  field)
- 39     ACCT.WITH.BAN          Posted to OFS (data           → ACCT.WITH.BANK:n (looped, capped at 4;
-        K                      field)                        SC/BL/CH/FW prefix escaping)
- 40     PAYMENT.DETA           Posted to OFS (data           → PAYMENT.DETAILS:n (looped, capped at 4)
-        ILS                    field)
- 41     BK.TO.BK.OUT           Posted to OFS (data           Posted via FILL.SUB.VALUE merge logic against the
-                               field)                        existing FT record
- 42     FUNCTION.ID            Posted (OFS                   Used in the OFS header/routing segment (VALIDATE
-                               header/routing only)          vs PROCESS mode) — not a named FT field
- 43     FT.TXN.NARR            Posted to OFS (data           → FT.TXN.NARR::
-                               field)
- 44     CHRG.ACCT.NO           Posted to OFS (data           → CHARGES.ACCT.NO
-                               field)
- 45     CREDIT.THEIR.R         Posted to OFS (data           Posted as-is
-        EF                     field)
- 46     DEBIT_VALUE.D          Posted to OFS (data           → DEBIT.VALUE.DATE (defaults to VALUE.DATE
-        ATE                    field)                        if blank)
- 47     VERSION.NAME           Posted (OFS                   Used in the OFS header/routing segment (selects the FT
-                               header/routing only)          version template) — not a named FT field
- 48     OLD.CBE.CODE           Posted to OFS (data           Posted as-is (CBE regulatory reporting field)
-                               field)
- 49     NEW.CBE.CODE           Posted to OFS (data           Posted as-is (CBE regulatory reporting field)
-                               field)
- 50     SELL.CODE              Posted to OFS (data           Posted as-is (CBE regulatory reporting field)
-                               field)
- 51     CBE.NAR.AR             Posted to OFS (data           Posted as-is (CBE regulatory reporting field, Arabic
-                               field)                        narrative)
+    RETURN
+*****************************************************************************
+GET.COMMON.VALUES:
+******************
+    LOCATE "MSG.ID" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        MSG.ID = OUT.VALUES.ARRAY<POS>
+        DEL OUT.VALUES.ARRAY<POS>
+        DEL OUT.TAG.VALUE.ARRAY<POS>
+    END
+    LOCATE "SRVC.ID" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        DEL OUT.VALUES.ARRAY<POS>
+        DEL OUT.TAG.VALUE.ARRAY<POS>
+    END
+    POS = ""
+    LOCATE "CHNL.CODE" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        CHNL.CODE = OUT.VALUES.ARRAY<POS>
+        DEL OUT.VALUES.ARRAY<POS>
+        DEL OUT.TAG.VALUE.ARRAY<POS>
+    END
+    POS = ""
+    LOCATE "TOKEN.ID" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        TOKEN.ID = OUT.VALUES.ARRAY<POS>
+        DEL OUT.VALUES.ARRAY<POS>
+        DEL OUT.TAG.VALUE.ARRAY<POS>
+    END
+    POS= ""
+    LOCATE "GTS.CONTROL" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        GTS.CONTROL = OUT.VALUES.ARRAY<POS>
+        DEL OUT.VALUES.ARRAY<POS>
+        DEL OUT.TAG.VALUE.ARRAY<POS>
+    END
+* MCBCS-20180716-S
+*    IF GTS.CONTROL = "" THEN
+    IF GTS.CONTROL EQ "" THEN
+* MCBCS-20180716-E
+        GTS.CONTROL = Y.GTS.CONTROL
+    END
+    POS = ""
+    LOCATE "AUTH.FLAG" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        AUTH.FLAG = OUT.VALUES.ARRAY<POS>
+        DEL OUT.VALUES.ARRAY<POS>
+        DEL OUT.TAG.VALUE.ARRAY<POS>
+    END
+    LOCATE "BRANCH.NO" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        BRANCH.CODE = OUT.VALUES.ARRAY<POS>
+        DEL OUT.VALUES.ARRAY<POS>
+        DEL OUT.TAG.VALUE.ARRAY<POS>
+    END
+* MCBCS-20180716-S
+*    IF  BRANCH.CODE = "" THEN
+    IF  BRANCH.CODE EQ "" THEN
+* MCBCS-20180716-E
+        BRANCH.CODE = Y.BRANCH.CODE
+    END
+    Y.RECORD.ID = ""
+    LOCATE Y.ID.TAG IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        Y.RECORD.ID = TRIM(OUT.VALUES.ARRAY<POS>)
+        DEL OUT.VALUES.ARRAY<POS>
+        DEL OUT.TAG.VALUE.ARRAY<POS>
+    END
+    EXTERNAL.REF.FLAG = "FALSE"
+    LOCATE "EXTERNAL.REF" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        EXTERNAL.REF.FLAG = "TRUE"
+        Y.EXTERNAL.REF.NEW = TRIM(OUT.VALUES.ARRAY<POS>)
+        DEL OUT.VALUES.ARRAY<POS>
+        DEL OUT.TAG.VALUE.ARRAY<POS>
+    END
+    CHANGE "." TO "_" IN Y.ID.TAG
+* MCBCS-20180716-S
+*    IF AUTH.FLAG = "" THEN
+    IF AUTH.FLAG EQ "" THEN
+* MCBCS-20180716-E
+        AUTH.FLAG = Y.AUTH.FLAG
+    END
+    POS = ""
+    LOCATE "FUNCTION.ID" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        FUNCTION.ID = OUT.VALUES.ARRAY<POS>
+        DEL OUT.VALUES.ARRAY<POS>
+        DEL OUT.TAG.VALUE.ARRAY<POS>
+    END
+    LOCATE "DEBIT.ACCT.NO" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        ACCT.ID = OUT.VALUES.ARRAY<POS>
+        CALL F.READ(FN.ACCOUNT,ACCT.ID,R.ACCOUNT, F.ACCOUNT,ERR.AC)
+        ORG.ACCOUNT = ACCT.ID
+        IF R.ACCOUNT THEN
+            ORG.ACC.CUR.SRC = R.ACCOUNT<AC.CURRENCY>
+            DEBIT.CCY.VALUE = ORG.ACC.CUR.SRC
+            MAIN.CUSTOMER = R.ACCOUNT<AC.CUSTOMER>
+        END
+    END
+    LOCATE "CHARGES.ACCT.NO" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        CHRG.ACCT.ID = OUT.VALUES.ARRAY<POS>
+        CALL F.READ(FN.ACCOUNT,CHRG.ACCT.ID,R.ACCOUNT, F.ACCOUNT,ERR.AC)
+        ORG.ACCOUNT = ACCT.ID
+        IF R.ACCOUNT THEN
+            ORG.ACC.CUR.SRC = R.ACCOUNT<AC.CURRENCY>
+            MAIN.CUSTOMER = R.ACCOUNT<AC.CUSTOMER>
+        END
+    END
 
-Pre-processing: input is sanitized — &, /, ',', ', ", (, ), {, }, : are all replaced with safe placeholder chars (- or ^)
-before parsing. This is a hidden validation/normalization layer that must be replicated in TPH/IRIS if the
-same special-character handling is expected.
+    LOCATE "CREDIT.ACCT.NO" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        ACCT.ID = OUT.VALUES.ARRAY<POS>
+        CALL F.READ(FN.ACCOUNT,ACCT.ID,R.ACCOUNT, F.ACCOUNT,ERR.AC)
+        IF R.ACCOUNT THEN
+            ORG.ACC.CUR.TRG = R.ACCOUNT<AC.CURRENCY>
+        END
+    END
+    LOCATE "CUSTOMER.RATE" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        Y.CUST.RATE= OUT.VALUES.ARRAY<POS>
+        IF Y.CUST.RATE = "NULL" THEN
+            Y.CUST.RATE = ""
+        END
+    END
 
-2.1 Fields Received But NOT Posted to the Core Ledger — Needs a Decision
-The following input fields are accepted from the channel but, based on this routine's code, never make it into the
-FUNDS.TRANSFER posting. For each, the migration team must explicitly decide: (a) intentionally drop it in the
+    LOCATE "USD.RATE" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        Y.USD.RATE = OUT.VALUES.ARRAY<POS>
+        IF Y.USD.RATE EQ "NULL" THEN
+            Y.USD.RATE = ''
+        END
+        DEL OUT.VALUES.ARRAY<POS>
+        DEL OUT.TAG.VALUE.ARRAY<POS>
+    END
+*** HALAFAWY ****
+    LOCATE "COMMISSION.RATE" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        Y.COMM.RATE = OUT.VALUES.ARRAY<POS>
+        IF Y.COMM.RATE EQ "NULL" THEN
+            Y.COMM.RATE = ''
+        END
+    END
 
-new IRIS request contract, (b) discover where else it's used in T24 R20 (a routine not covered by this file) before
-dropping it, or (c) it was already dead code that predates the current requirements and can be safely retired.
-    ●    BOOK.DATE — parsed, no downstream reference found
-    ●    PROFIT.CNTR — split into CUST/DEBT components, neither referenced again
-    ●    SRC.NARR — parsed, no downstream reference found
-    ●    BEN.ADDR.1, BEN.ADDR.2, BEN.ADDR.3 — beneficiary address lines parsed, never posted or used
-    ●    CHARGE.IND — parsed, no downstream reference found
-    ●    BEN.BK.NAME — parsed; only the BIC code (BEN.BIC.CD) actually gets posted, the bank name text
-         does not
-    ● BEN.BK.SORT.CD, BEN.BK.BRANCH, BEN.BK.BRN.CD — beneficiary bank routing detail fields
-         parsed, never posted or used
-    ● BEN.NARRATIVE — parsed but distinct from FT.NARRATIVE (which is posted) — this specific field is
-         dropped
-    ● CUSTOMER.SPREAD — parsed, no downstream reference found
-Separately, two fields are consumed only for validation/control-flow and are correctly never posted as ledger data
-— this is expected behavior, not a gap: TXN.TYPE (restriction check input) and OD.TYPE (overdraft balance-check
-gate).
+    LOCATE "BEN.OUR.CHARGES" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        Y.BEN.CHRG= OUT.VALUES.ARRAY<POS>
+        IF Y.BEN.CHRG EQ "BEN" THEN
+            Y.COMM.CHARGE = ORG.ACC.CUR.TRG
+        END
+        ELSE
+            Y.COMM.CHARGE = ORG.ACC.CUR.SRC
+        END
+    END
+    LOCATE "CREDIT.AMOUNT" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        Y.DEAL.AMOUNT  = OUT.VALUES.ARRAY<POS>
+        Y.DEAL.CCY = ORG.ACC.CUR.TRG
+    END
+    LOCATE "COMMISSION.TYPE" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        SEND.COMMISSIONS.CALC = OUT.VALUES.ARRAY<POS>
+        CHANGE "_" TO FM IN SEND.COMMISSIONS.CALC
+* CALC.COMM = DCOUNT(SEND.COMMISSIONS.CALC,FM)
+* IF CALC.COMM > 0 THEN
+*     FOR TEMP.X = 1 TO CALC.COMM
+*         NEW.SEND.COMM<1,TEMP.X> = FIELD(SEND.COMMISSIONS.CALC,FM,TEMP.X)
+*         NEW.SEND.COMM<2,TEMP.X> = "COM"
+*     NEXT TEMP.X
+* END
+    END
+    LOCATE "COMMISSION.AMT" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        SEND.COMMISSIONS.AMOUNTS = OUT.VALUES.ARRAY<POS>
+        CHANGE "_" TO FM IN SEND.COMMISSIONS.CALC
+        CHANGE "_" TO FM IN SEND.COMMISSIONS.AMOUNTS
+    END
 
-2A. Technical Processing Flow (Sequence)
-Step-by-step execution order as implemented in CIB.OT.FT, useful for building an equivalent orchestration
-sequence (e.g. BPEL/API-gateway flow) in TPH:
-1. OPEN.FILES — opens all required file handles (F.ACCOUNT.RETAIL.CU.ACCT, F.COMPANY,
-FBNK.NOSTRO.ACC, F.ACCOUNT, F.CURRENCY, FBNK.FUNDS.TRANSFER,
-FBNK.FUNDS.TRANSFER$NAU, FBNK.CIB.API.FT, F.CIB.ONLINE.FTS, F.CIB.API.OVERRIDE,
-F.ST.CIB.FI.FT.PARAM, FBNK.CUSTOMER).
-2. Sanitize I.PARAM — strip/replace reserved delimiter characters so downstream FIELD() parsing is safe.
-3. SAVE.MSG — parse header (SRVC.ID, CHNL.CODE, MSG.ID, TOKEN.ID), resolve per-channel override
-config (CIB.API.OVERRIDE) and Business Banking industry flag (CHECK.FI.IND.UPD.FLAG /
-ST.CIB.FI.FT.PARAM), parse all 51 positional fields, then read-or-create the CIB.API.FT audit/idempotency record
-for this MSG.ID.
-4. Idempotency gate — if CIB.API.FT already shows CUR.STATUS = 0000 for this MSG.ID, skip straight to
-building the cached response (no re-validation, no re-posting).
-5. Channel restriction gate (API channel only) — call CIB.API.VALIDATE.FT; if restricted, short-circuit with
-status 0006.
-6. FT.PROCESS — normalize SRC.ACC.ID format, compute available balance (GET.NET.AVL.BL), convert
-currency if needed (GET.EQ.AMOUNT / EXCHRATE), apply overdraft/auth-flag logic.
-7. Business Banking gate — if BB.FLAG is set and a posting-restriction match is found, short-circuit with status
-3003 before the balance check is even evaluated.
-8. Balance gate — if available balance is insufficient and no overdraft override applies, short-circuit with status
-0011 (Business Banking) or 0006 (standard).
-9. Build OFSRECORD — assemble the full OFS string field-by-field (see 2B below), including BIC/IBAN
-resolution, commission-code derivation, and CBE reporting fields.
-10. BB.MCP dry-run gate — for BB.MCP channel only, run a VALIDATE-mode OFS call first; if
-ACCT.UNAUTH.OD override is returned, short-circuit with status 0011.
-11. Post — call OFS.INITIALISE.SOURCE + OFS.BULK.MANAGER to submit the real (PROCESS-mode) OFS
-record to FUNDS.TRANSFER.
+    LOCATE "COMMISSION.WAIVER" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        SEND.COMMISSIONS.WAIVER = OUT.VALUES.ARRAY<POS>
+        CHANGE "_" TO FM IN SEND.COMMISSIONS.WAIVER
+        DEL OUT.VALUES.ARRAY<POS>
+        DEL OUT.TAG.VALUE.ARRAY<POS>
+    END
+    LOCATE "COMMISSION.AMT" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        SEND.COMMISSIONS.AMOUNTS = OUT.VALUES.ARRAY<POS>
+        CHANGE "_" TO FM IN SEND.COMMISSIONS.CALC
+        CHANGE "_" TO FM IN SEND.COMMISSIONS.AMOUNTS
+    END
+    LOCATE "OVERRIDE.CUST.COMMISSION" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        OVERRIDE.CUST.COMM = TRIM(OUT.VALUES.ARRAY<POS>)
+        DEL OUT.VALUES.ARRAY<POS>
+        DEL OUT.TAG.VALUE.ARRAY<POS>
+    END
 
-12. Parse OFS response — extract success flag, FT.ID, and status; on success set PAID.AMOUNT and call
-UPDATE.FTS.ONLINE (SMS trigger + journal).
-13. Re-read FUNDS.TRANSFER (NAU or live) to fetch OVERRIDE text for the response payload.
-14. Conditional auto-authorization — if channel config requires it and the record is in an auth-pending state, call
-CIB.MSG.AUTHORIZE.SC.
-15. UPDATE.MSG — persist final CUR.STATUS, FT.ID, OFSRECORD, PAID.AMOUNT back to CIB.API.FT
-(skipped when FUNCTION.ID = VALIDATE, i.e. dry-run/enquiry calls don't overwrite the audit record).
-16. Return O.MSG to caller in the format HEADER.ID|STATUS|FT.ID|OFSRECORD|PAID.AMOUNT|
-OVERRIDE|.
+    LOCATE "CONCESSION" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+        CONCESSION = OUT.VALUES.ARRAY<POS>
+        DEL OUT.VALUES.ARRAY<POS>
+        DEL OUT.TAG.VALUE.ARRAY<POS>
+    END
+* MCBCS-20180716-S
+*    IF FUNCTION.ID = "" THEN
+    IF FUNCTION.ID EQ "" THEN
+* MCBCS-20180716-E
+        FUNCTION.ID = Y.FUNCTION.ID
+    END
 
-2B. OFS Record Field Construction Map
-Shows exactly how each field posted to FUNDS.TRANSFER (via OFS) is derived. This is the field-by-field spec
-needed to build the equivalent IRIS API request payload mapping.
+    HEADER.ID = "XML":SRVC.ID:"#":CHNL.CODE:"#":MSG.ID:"#":TOKEN.ID
 
- OFS Field                      Source Field(s)                      Transform / Rule
- DEBIT.ACCT.NO                  SRC.ACC.ID                           Normalized (short-format account re-mapped via
-                                                                     F.ACCOUNT.RETAIL.CU.ACCT lookup if ≤10
-                                                                     chars)
- CREDIT.ACCT.NO                 CREDIT.ACCT.NO                       Passed through as-is
- CREDIT.CURRENCY /              SRC.CURR / SRC.AMT                   Direct pass-through
- CREDIT.AMOUNT
- CREDIT.VALUE.DATE              VALUE.DATE                           Defaults to TODAY if blank
- DEBIT.VALUE.DATE               DEBIT_VALUE.DATE                     Defaults to VALUE.DATE if blank
- ORDERING.CUST:n                ORDERING.CUST                        '_' split into multivalue; '~'→'_' unescape per line
- ORD.CUST.ACCT                  ORDERING.CUST (first                 Only set when ORDERING.CUST is non-blank
-                                value)                               AND SRC.ACC.ID length > 12
- PAYMENT.DETAILS:n              PAYMENT.DETAILS                      '_' split, capped at 4 lines
- BEN.CUSTOMER:n                 BEN.NAME                             Reformatted: first two name parts merged,
-                                                                     MT→MX transliteration via CIB.MT.MX for non-
-                                                                     EGP, then parts 3–4 re-appended; capped at 4 lines
- IBAN.BEN or                    BEN.ACC                              IBAN.BEN used if 29-char value passes
- BEN.ACCT.NO                                                         IBANService.ValidateIBAN; otherwise
-                                                                     BEN.ACCT.NO
- ACCT.WITH.BANK:n               ACCT.WITH.BANK                       '_' split, capped at 4; SC/BL/CH/FW-prefixed
-                                                                     codes get '^^' escape prefix
- INTERMED.BANK:n                INTERMED.BANK                        '_' split into multivalue
- BNK.NME.57                     BEN.BIC.CD                           Direct mapping
- INTERMED.BANK.ACC              INTERMED.BANK.ACCT                   Direct pass-through
- CUSTOMER.RATE                  CUSTOMER.RATE                        Zeroed if channel = BPM and incoming value = 0
- ORDERING.BANK:n                ORDERING.BANK                        '_' split; minimum 1 line enforced even if blank
- DEBIT.THEIR.REF                FT.NARRATIVE                         Direct mapping
- CREDIT.THEIR.REF               CREDIT.THEIR.REF                     Direct pass-through
+    RETURN
+*****************************************************************************
+GET.VALUES:
+***********
+    CHANGE "@@" TO FM IN IN.PARAM
+    CHANGE ">" TO "@" IN IN.PARAM
+    CHANGE "^" TO "/" IN IN.PARAM
+    Y.FLD.SPRT = "|"
+*SRVC.ID = FIELD(IN.PARAM,"|",1)[4,30]
+*OUT.VALUES.ARRAY = FIELD(IN.PARAM,"|",3)
+*OUT.TAG.VALUE.ARRAY = FIELD(IN.PARAM,"|",2)
+    SRVC.ID = FIELD(IN.PARAM,Y.FLD.SPRT,1)[4,30]
+    OUT.VALUES.ARRAY = FIELD(IN.PARAM,Y.FLD.SPRT,3)
+    OUT.TAG.VALUE.ARRAY = FIELD(IN.PARAM,Y.FLD.SPRT,2)
+*  Y.VALUES.ARRAY = OUT.VALUES.ARRAY
+*  CHANGE FM TO "|" IN OUT.VALUES.ARRAY
+* Y.TAGS.ARRAY = OUT.TAG.VALUE.ARRAY
+*CHANGE FM TO "|" IN OUT.TAG.VALUE.ARRAY
 
-OFS Field             Source Field(s)                     Transform / Rule
-ACCT.WITH.BANK.ACC    ACCT.WITH.BANK.ACC                  Direct pass-through
-FREE.MARKT.CODE       FREE.MARKT.CODE                     Direct pass-through
-BK.TO.BK.OUT:1:n      BK.TO.BK.OUT (merged                'NULL' literal substituted when incoming value
-                      with existing FT record via         blank; merged multivalue vs current record's
-                      FILL.SUB.VALUE)                     BK.TO.BK.OUT
-BEN.OUR.CHARGES       BEN.OUR.CHARGES                     Direct pass-through
-COMMISSION.CODE       Derived from                        OUR/SHA→DEBIT PLUS CHARGES,
-                      BEN.OUR.CHARGES                     BEN→CREDIT LESS CHARGES; cleared blank
-                                                          if DEBIT PLUS CHARGES and SRC.ACC.ID
-                                                          length > 12
-CHARGES.ACCT.NO       CHRG.ACCT.NO                        Direct pass-through
-FT.TXN.NARR::         FT.TXN.NARR                         Direct pass-through (double-colon = no-index
-                                                          field)
-COMMISSION.TYPE:n /   COMMISSION.TYPE /                   Looped together, '_' split multivalue
-COMMISSION.AMT:n      COMMISSION.AMOUNT
-SRC.CHANNEL           CHNL.CODE (first 4 chars)           Truncated
-INT.MSG.NUM.1         MSG.ID                              Direct mapping
-UETR.USR.INP          MSG.ID                              Only set when CHNL.CODE = VOS
-OLD.CBE.CODE /        OLD.CBE.CODE /                      Direct pass-through (CBE regulatory reporting
-NEW.CBE.CODE /        NEW.CBE.CODE /                      fields)
-SELL.CODE             SELL.CODE
-CBE.NAR.AR            CBE.NAR.AR                          Direct pass-through (Arabic narrative for CBE
-                                                          reporting)
+    CALL F.READ (FN.CIB.MSG.CONFIG,SRVC.ID,R.CIB.MSG.CONFIG,F.CIB.MSG.CONFIG,ERR.CIB.MSG)
+    CALL F.READ(FN.CIB.API.CONFIG.XML,SRVC.ID,R.CIB.API.CONFIG.XML,F.CIB.API.CONFIG.XML,ERR1)
+    IF R.CIB.MSG.CONFIG THEN
+        Y.AUTH.FLAG = R.CIB.MSG.CONFIG<MSG.AUTH.FLAG>
+        Y.FUNCTION.ID = R.CIB.MSG.CONFIG<MSG.FUNCTION.ID>
+        Y.GTS.CONTROL = R.CIB.MSG.CONFIG<MSG.GTS.CONTROL>
+        Y.VERSION.NAME = R.CIB.MSG.CONFIG<MSG.VERSION.NAME>
+        Y.OFS.SOURCE = R.CIB.MSG.CONFIG<MSG.OFS.SRCE.ID>
+        Y.BRANCH.CODE = R.CIB.MSG.CONFIG<MSG.BRANCH.CODE>
+        Y.ID.TAG = R.CIB.MSG.CONFIG<MSG.ID.TAG>
+        Y.EXTERNAL.REF = "EXTERNAL_REF"
+        Y.REMOVE.TAGS.ARRAY = R.CIB.MSG.CONFIG<MSG.XML.TAGS.REMOVE>
+        Y.APP.NAME = R.CIB.MSG.CONFIG<MSG.APP.NAME>
+        Y.AMEND.VERSION.NAME = R.CIB.MSG.CONFIG<MSG.AMEND.VERSION.NAME>
+        CHANGE VM TO FM IN Y.REMOVE.TAGS.ARRAY
+* MCBCS-20180716-S
+*        IF Y.APP.NAME <> "" THEN
+        IF Y.APP.NAME NE "" THEN
+* MCBCS-20180716-E
+            FN.APP.NAME = 'F.':Y.APP.NAME
+            F.APP.NAME = ''
+            CALL OPF(FN.APP.NAME,F.APP.NAME)
+            FN.APP.NAME.NAU = 'F.':Y.APP.NAME:'$NAU'
+            F.APP.NAME.NAU = ''
+            CALL OPF(FN.APP.NAME.NAU,F.APP.NAME.NAU)
+            FN.STANDARD.SELECTION = 'F.STANDARD.SELECTION'
+            F.STANDARD.SELECTION = ''
+            CALL OPF(FN.STANDARD.SELECTION,F.STANDARD.SELECTION)
+        END
+    END
 
-2C. Files Read / Written
-File / Table               Access           Purpose
-F.ACCOUNT.RETAIL.CU.AC     Read             Resolve short-format retail account numbers to full account
-CT                                          ID
-F.COMPANY                  Read             Opened but not directly referenced in the reviewed logic —
-                                            confirm usage elsewhere/legacy
-FBNK.NOSTRO.ACC            Read             Opened; nostro handling context (not directly read in this
-                                            excerpt)
-F.ACCOUNT                  Read             Debit account currency lookup, customer number lookup for
-                                            industry check
-F.CURRENCY                 Read             Opened for currency-context; conversion itself delegated to
-                                            EXCHRATE
-FBNK.FUNDS.TRANSFER        Read             Post-posting re-read to fetch OVERRIDE text; idempotency
-                                            check pre-read
-FBNK.FUNDS.TRANSFER$N      Read             Un-authorized/in-flight FT record read (before authorization
-AU                                          completes)
+    RETURN
+*****************************************************************************
+CHECK.MSG.ID:
+*************
+    O.MSG = ""
+    HIS.RETRN.CODE = ""
+    HIS.REC.ID = ""
+    HIS.OFS.MSG = ""
+    CALL F.READ(FN.CIB.API.LOG,MSG.ID,R.CIB.API.LOG,F.CIB.API.LOG,ERR1)
+    IF R.CIB.API.LOG THEN
+        HIS.RETRN.CODE = R.CIB.API.LOG<API.LOG.RETURN.CODE>
+        HIS.REC.ID = R.CIB.API.LOG<API.LOG.REC.ID>
+        HIS.OFS.MSG = R.CIB.API.LOG<API.LOG.OFS.OUT>
+* MCBCS-20180716-S
+*        IF HIS.RETRN.CODE = "0000" THEN
+        IF HIS.RETRN.CODE EQ "0000" THEN
+* MCBCS-20180716-E
+            RETURN.CODE = "1001"
+            OFSRECORD = HIS.OFS.MSG
+            RECORD.ID = HIS.REC.ID
+            GOSUB CREATE.RESPONSE
+        END
+    END
+    ELSE
+        GOSUB SAVE.MSG
+    END
 
- File / Table                        Access           Purpose
- FBNK.CIB.API.FT                     Read/Write       Core idempotency & audit store — one record per MSG.ID,
-                                                      updated at start and end of processing
- F.CIB.ONLINE.FTS                    Read/Write       SMS/online-transfer notification log, written on successful
-                                                      post
- F.CIB.API.OVERRIDE                  Read             Per-channel configuration: auth-flag behavior, OD-flag
-                                                      behavior, restricted posting codes, extra validation routine
-                                                      name
- F.ST.CIB.FI.FT.PARAM                Read             Per-channel list of customer industry codes subject to
-                                                      Business Banking restriction
- FBNK.CUSTOMER                       Read             Customer industry code and posting-restriction code lookup
+    RETURN
+*****************************************************************************
+CREATE.RESPONSE:
+****************
 
-3. Validations & Business Rules (the core of what must migrate)
+*    CALL F.READ(FN.CIB.API.CONFIG.XML,SRVC.ID,R.CIB.API.CONFIG.XML,F.CIB.API.CONFIG.XML,ERR1)
+*   IF R.CIB.API.CONFIG.XML THEN
+* MCBCS-20180716-S
+*    IF Y.APP.NAME <> "" THEN
+    IF Y.APP.NAME NE "" THEN
+* MCBCS-20180716-E
+        CALL F.READ(FN.APP.NAME.NAU,RECORD.ID,R.APP.NAME.NAU,F.APP.NAME.NAU,ERR1)
+        IF R.APP.NAME.NAU THEN
+            R.APP.NAME = R.APP.NAME.NAU
+        END
+        ELSE
+            CALL F.READ(FN.APP.NAME,RECORD.ID,R.APP.NAME,F.APP.NAME,ERR1)
+            IF R.APP.NAME THEN
 
-3.1 Idempotency / Duplicate Message Check
-    ●    Every inbound MSG.ID is looked up in CIB.API.FT table.
-    ●    If a prior record exists with CUR.STATUS = '0000' (already successfully processed), the routine does not
-         reprocess — it returns the cached FT ID / OFS record / paid amount from the original run.
-Gap risk: IRIS APIs typically have their own idempotency-key handling — must confirm it matches this exact
-"return cached success, skip reprocessing" behavior, not just "reject duplicate."
+            END
+        END
+        CALL F.READ(FN.STANDARD.SELECTION,Y.APP.NAME,R.STANDARD.SELECTION,F.STANDARD.SELECTION,S_ERR)
+        IF R.STANDARD.SELECTION THEN
+            Y.CHK.FLD = R.STANDARD.SELECTION<SSL.SYS.FIELD.NAME>
+            CHANGE VM TO FM IN Y.CHK.FLD
+            Y.CHK.LOCAL.FLD = R.STANDARD.SELECTION<SSL.USR.FIELD.NAME>
+            CHANGE VM TO FM IN Y.CHK.LOCAL.FLD
 
-3.2 Channel-Level Restriction Check (API channel only)
-    ●     If CHNL.CODE = 'API', calls external routine CIB.API.VALIDATE.FT with SRC.ACC.ID |
-          CHNL.CODE | TXN.TYPE.
-    ● Returns RESTRICT.FLAG / RESTRICT.DESC.
-    ● If RESTRICT.FLAG = '1' → immediate reject with error 0006 + description, before any balance or posting
-          logic runs.
-This is a black-box external validation — its internal rules are not visible in this routine and must be independently
-audited (separate service/routine).
+            FIELD.NO = ''
+            DATA.TYPE = ''
+            ERR.MSG = ''
+            YYAF = '' ; YYAV = '' ; YYAS = ''
+            TEMP.TAG.VALUE = "LOCAL.REF"
+            CALL FIELD.NAMES.TO.NUMBERS(TEMP.TAG.VALUE,R.STANDARD.SELECTION,FIELD.NO,YYAF,YYAV,YYAS,DATA.TYPE,ERR.MSG)
+            LOCAL.FLD.NO = FIELD.NO
+        END
+    END
+    FIELD.ARRAY = ""
+* MCBCS-20180716-S
+*    IF FIELD.ARRAY = "" THEN
+    IF FIELD.ARRAY EQ "" THEN
+* MCBCS-20180716-E
+        FIELD.ARRAY = ""
+        VALUE.ARRAY = ""
+        CALL CIB.SPLIT.OFS.RESPONSE(OFSRECORD,FIELD.ARRAY,VALUE.ARRAY)
+        CHANGE '"' TO FM IN FIELD.ARRAY
+        CHANGE '"' TO FM IN VALUE.ARRAY
+    END
+    LOCATE "COMMISSION.TYPE" IN FIELD.ARRAY SETTING POS.ID THEN
+        COMMISSION.TYPE.NEW = VALUE.ARRAY<POS.ID>
+        CHANGE "_" TO FM IN COMMISSION.TYPE.NEW
+        CHANGE VM TO FM IN COMMISSION.TYPE.NEW
+    END
+    LOCATE "COMMISSION.AMT" IN FIELD.ARRAY SETTING POS.ID THEN
+        COMMISSION.AMT.NEW = VALUE.ARRAY<POS.ID>
+        CHANGE VM TO FM IN COMMISSION.AMT.NEW
+        CHANGE "_" TO FM IN COMMISSION.AMT.NEW
+    END
+    SEND.COMMI.TYPE= ""
+    SEND.COMMI.AMT= ""
+    SEND.COMMI.STS= ""
+*----FIX 20180704 CHANGE VALUE : COMMISSION.TYPE.OLD TO SEND.COMMISSIONS.CALC ---------------*
+    NEW.CONC.VALUE = ""
+    COMMISSION.TYPE.OLD.COUNT = DCOUNT(SEND.COMMISSIONS.CALC,FM)
+*COMMISSION.TYPE.OLD.COUNT = DCOUNT(COMMISSION.TYPE.OLD,FM)
+    COMMISSION.TYPE.NEW.COUNT = DCOUNT(COMMISSION.TYPE.NEW,FM)
+* MCBCS-20180716-S
+*    IF COMMISSION.TYPE.OLD.COUNT > 0 THEN
+    IF COMMISSION.TYPE.OLD.COUNT GT 0 THEN
+* MCBCS-20180716-E
+        FOR TEMP.X = 1 TO COMMISSION.TYPE.OLD.COUNT
+            TEMP.COMM = SEND.COMMISSIONS.CALC<TEMP.X>
+*            TEMP.COMM = FIELD(COMMISSION.TYPE.OLD,FM,TEMP.X)
+            LOCATE TEMP.COMM IN COMMISSION.TYPE.NEW SETTING NEW.POS.ID THEN
+                COMMISSION.AMT.VALUE = COMMISSION.AMT.NEW<NEW.POS.ID>
+                CHANGE VM TO FM IN COMMISSION.AMT.NEW
+*                COMM.AMT.OLD =  COMMISSION.AMT.OLD<NEW.POS.ID>
+*HERE
+                COMM.AMT.OLD =  SEND.COMMISSIONS.AMOUNTS<TEMP.X>
+                CHANGE " " TO "" IN COMM.AMT.OLD
+* MCBCS-20180716-S
+*                IF LEN(COMMISSION.AMT.VALUE) = 3 THEN
+                IF LEN(COMMISSION.AMT.VALUE) EQ 3 THEN
+* MCBCS-20180716-E
+                    COMMISSION.AMT.VALUE = COMMISSION.AMT.VALUE:'0.00'
+                END
+* MCBCS-20180716-S
+*                IF COMMISSION.AMT.VALUE = COMM.AMT.OLD THEN
+                IF COMMISSION.AMT.VALUE EQ COMM.AMT.OLD THEN
+* MCBCS-20180716-E
+                    SEND.COMMI.TYPE<TEMP.X> = TEMP.COMM
+                    SEND.COMMI.AMT<TEMP.X> = COMMISSION.AMT.VALUE
+                    SEND.COMMI.STS<TEMP.X> = "Y"
+                END
+                ELSE
+                    SEND.COMMI.TYPE<TEMP.X> = TEMP.COMM
+                    SEND.COMMI.AMT<TEMP.X> = COMMISSION.AMT.VALUE
+                    SEND.COMMI.STS<TEMP.X> = "N"
+                END
+            END
+            ELSE
+* MCBCS-20180716-S
+*                IF COMMISSION.TYPE.NEW = "" AND TEMP.COMM = "" THEN
+                IF COMMISSION.TYPE.NEW EQ "" AND TEMP.COMM EQ "" THEN
+* MCBCS-20180716-E
+                    SEND.COMMI.TYPE<TEMP.X> = ""
+                    SEND.COMMI.AMT<TEMP.X> = ""
+                    SEND.COMMI.STS<TEMP.X> = ""
+                END
+                ELSE
+                    TEMP.AMT =  Y.COMM.CHARGE:'0.00'
+                    SEND.COMMI.TYPE<TEMP.X> = TEMP.COMM
+                    SEND.COMMI.AMT<TEMP.X> = TEMP.AMT
+                    SEND.COMMI.STS<TEMP.X> = "W"
+                END
+            END
+        NEXT TEMP.X
+    END
+*----FIX 20180704 CHANGE VALUE : COMMISSION.TYPE.OLD TO SEND.COMMISSIONS.CALC ---------------
+* IF COMMISSION.TYPE.NEW.COUNT > 0 THEN
+*    FOR TEMP.Y = 1 TO COMMISSION.TYPE.NEW.COUNT
+*       TEMP.COMM = FIELD(COMMISSION.TYPE.NEW,FM,TEMP.Y)
+*     LOCATE TEMP.COMM IN SEND.COMMI.TYPE SETTING NEW.POS.ID THEN
+*      END
+*    ELSE
+*       COMMISSION.AMT.VALUE = COMMISSION.AMT.NEW<NEW.POS.ID>
+*      SEND.COMMI.TYPE<TEMP.X> =  TEMP.COMM
+*     SEND.COMMI.AMT<TEMP.X> = COMMISSION.AMT.VALUE
+*    SEND.COMMI.STS<TEMP.X> = "N"
+*   TEMP.X ++
+* END
+* NEXT TEMP.Y
+*END
 
-3.3 Customer Industry-Based Posting Restriction (Business Banking)
-    ●    Reads F.ST.CIB.FI.FT.PARAM keyed by first 4 chars of channel code.
-    ●    Gets the debit account's customer, reads CUSTOMER.INDUSTRY.
-    ●    If industry code matches a configured restricted-industry list → sets BB.FLAG = "TRUE", forces
-         OD.TYPE = "N" (no overdraft allowed).
-     ● If BB.FLAG = TRUE: checks customer/account POSTING.RESTRICT codes against a configured
-         override list (CIB.API.OVERRIDE). If a match is found → hard reject with error 3003 and a configured
-         description — transaction never reaches balance check or posting.
-Gap risk: This entire industry+restriction-code rule engine is config-table-driven (ST.CIB.FI.FT.PARAM,
-CIB.API.OVERRIDE) — needs to be reproduced either in TPH parameter tables or in an orchestration/pre-
-validation layer in front of IRIS.
+    CHANGE FM TO "_" IN SEND.COMMI.TYPE
+    CHANGE FM TO "_" IN SEND.COMMI.AMT
+    CHANGE FM TO "_" IN SEND.COMMI.STS
+    TAG.COUNT = DCOUNT(R.CIB.API.CONFIG.XML<CON.XML.TAGNAME>,VM)
+    FOR TAGS.COUNTER = 1 TO TAG.COUNT
+        TEMP.TAG.VALUE = R.CIB.API.CONFIG.XML<CON.XML.TAGNAME,TAGS.COUNTER>
+        TEMP.TAG.TYPE = R.CIB.API.CONFIG.XML<CON.XML.TAGTYPE,TAGS.COUNTER>
+        TEMP.TAG.COUNT = R.CIB.API.CONFIG.XML<CON.XML.TAGCOUNT,TAGS.COUNTER>
+        VALUE.RECORD = ""
+* MCBCS-20180716-S
+*        IF TEMP.TAG.TYPE = "" THEN
+        IF TEMP.TAG.TYPE EQ "" THEN
+* MCBCS-20180716-E
+            Y.FIELD.SPRT = "-"
+            MAIN.TAG.VALUE = TEMP.TAG.VALUE
+*COUNT.MV = DCOUNT(TEMP.TAG.VALUE,"-")
+            COUNT.MV = DCOUNT(TEMP.TAG.VALUE,"-")
+            MV.FLAG = "FALSE"
+* MCBCS-20180716-S
+*            IF COUNT.MV > 0 THEN
+            IF COUNT.MV GT 0 THEN
+* MCBCS-20180716-E
+*TEMP.TAG.VALUE = FIELD(TEMP.TAG.VALUE,"-",1)
+*Y.MV.POS = FIELD(TEMP.TAG.VALUE,"-",2)
+                TEMP.TAG.VALUE = FIELD(TEMP.TAG.VALUE,Y.FIELD.SPRT,1)
+                Y.MV.POS = FIELD(TEMP.TAG.VALUE,Y.FIELD.SPRT,2)
+                MV.FLAG = "TRUE"
+            END
+            COMMISSION.AMT.NEW = ""
+            COMMISSION.TYPE.NEW = ""
+            FIELD.NO = ''
+* MCBCS-20180716-S
+*            IF TEMP.TAG.VALUE = "OFS_RETURN" THEN
+            IF TEMP.TAG.VALUE EQ "OFS_RETURN" THEN
+* MCBCS-20180716-E
+                VALUE.RECORD = OFSRECORD
+            END
+* MCBCS-20180716-S
+*            IF TEMP.TAG.VALUE = "RECORD_ID" OR TEMP.TAG.VALUE = Y.ID.TAG THEN
+            IF TEMP.TAG.VALUE EQ "RECORD_ID" OR TEMP.TAG.VALUE EQ Y.ID.TAG THEN
+* MCBCS-20180716-E
+                VALUE.RECORD = RECORD.ID
+                TEMP.TAG.VALUE = ""
+            END
+* MCBCS-20180716-S
+*            IF RETURN.CODE = "0000" THEN
+            IF RETURN.CODE EQ "0000" THEN
+* MCBCS-20180716-E
+* MCBCS-20180716-S
+*                IF TEMP.TAG.VALUE = "COMMISSION_AMT" THEN
+                IF TEMP.TAG.VALUE EQ "COMMISSION_AMT" THEN
+* MCBCS-20180716-E
+                    VALUE.RECORD = SEND.COMMI.AMT
+                    TEMP.TAG.VALUE = ""
+                END
+* MCBCS-20180716-S
+*                IF TEMP.TAG.VALUE = "COMMISSION_TYPE" THEN
+                IF TEMP.TAG.VALUE EQ "COMMISSION_TYPE" THEN
+* MCBCS-20180716-E
+                    VALUE.RECORD = SEND.COMMI.TYPE
+                    TEMP.TAG.VALUE = ""
+                END
+* MCBCS-20180716-S
+*                IF TEMP.TAG.VALUE = "SAME_COMMISSON_RCVD" THEN
+                IF TEMP.TAG.VALUE EQ "SAME_COMMISSON_RCVD" THEN
+* MCBCS-20180716-E
+                    VALUE.RECORD = SEND.COMMI.STS
+                    TEMP.TAG.VALUE = ""
+                END
+            END
+            IF TEMP.TAG.VALUE EQ "CONCESSION" THEN
+                VALUE.RECORD = CONCESSION.FLAG
+                TEMP.TAG.VALUE = ""
+            END
+            CHANGE "_" TO "." IN TEMP.TAG.VALUE
+* MCBCS-20180716-S
+*            IF TEMP.TAG.VALUE <> "" THEN
+            IF TEMP.TAG.VALUE NE "" THEN
+* MCBCS-20180716-E
+                LOCATE TEMP.TAG.VALUE IN FIELD.ARRAY SETTING POS.ID THEN
+                    VALUE.RECORD = VALUE.ARRAY<POS.ID>
+                END
+            END
+* MCBCS-20180716-S
+*            IF O.MSG = "" THEN
+            IF O.MSG EQ "" THEN
+* MCBCS-20180716-E
+                O.MSG =  FMT(O.MSG,"R0,|":TAG.COUNT)
+            END
+            CHANGE VM TO "_" IN VALUE.RECORD
+            CHANGE SM TO "_" IN VALUE.RECORD
+            O.MSG["|",TEMP.TAG.COUNT,1] = VALUE.RECORD
+        END
+    NEXT TAGS.COUNTER
 
-3.4 Available Balance Check
-    ●    Calls GET.NET.AVL.BL to compute limit balance, lock amount, book/clear/available balance for the debit
-         account.
+*  END
 
-    ●    If debit currency ≠ transaction currency, converts available balance to transaction currency via
-         EXCHRATE (market code 11).
-    ●    Rule: proceed only if AVAL.BALANCE >= SRC.AMT OR OD.TYPE = 'Y' (overdraft allowed).
-    ●    Else → reject: 0011 if BB.FLAG = TRUE (Business Banking insufficient balance); 0006 otherwise
-         (generic insufficient balance).
-    ●    Both return the computed available balance in the error description.
+    RETURN
+*****************************************************************************
+CREATE.OFS.MSG:
+***************
+    OUT.TAG.VALUE.ARRAY.COUNT = DCOUNT(OUT.TAG.VALUE.ARRAY,FM)
+* MCBCS-20180716-S
+*    IF OUT.TAG.VALUE.ARRAY.COUNT > 0 THEN
+    IF OUT.TAG.VALUE.ARRAY.COUNT GT 0 THEN
+* MCBCS-20180716-E
 
-3.5 Overdraft Authorization Flag Logic
-    ●    If CHANGE.AUTH.FLAG = "YES" (from CIB.API.OVERRIDE config per channel) and
-         AVAL.BALANCE < SRC.AMT: sets OD.FLAG = "Y", forces the record into an authorization-required
-         state (AUTH.FLAG = "1", AUTH.FLAG.NEW = "1").
-This means: certain channels are configured to allow overdraft but force a maker-checker style hold rather than an
-outright reject.
+* MCBCS-20180716-S
+*        IF FUNCTION.ID = 'V' THEN
+        IF FUNCTION.ID EQ 'V' THEN
+* MCBCS-20180716-E
+            FUNCTION.ID = 'VALIDATE'
+        END
+* MCBCS-20180716-S
+*        IF FUNCTION.ID = 'I' OR FUNCTION.ID = '' THEN
+        IF FUNCTION.ID EQ 'I' OR FUNCTION.ID EQ '' THEN
+* MCBCS-20180716-E
+            FUNCTION.ID = 'PROCESS'
+        END
+* MCBCS-20180716-S
+*        IF FUNCTION.ID = 'U' THEN
+        IF FUNCTION.ID EQ 'U' THEN
+* MCBCS-20180716-E
+            FUNCTION.ID = 'PROCESS'
+            Y.VERSION.NAME = Y.AMEND.VERSION.NAME
+        END
+* MCBCS-20180716-S
+*        IF FUNCTION.ID = 'VU' THEN
+        IF FUNCTION.ID EQ 'VU' THEN
+* MCBCS-20180716-E
+            FUNCTION.ID = 'VALIDATE'
+            Y.VERSION.NAME = Y.AMEND.VERSION.NAME
+        END
+* MCBCS-20180716-S
+*        IF LEN(BRANCH.CODE) = 3 THEN
+        IF LEN(BRANCH.CODE) EQ 3 THEN
+* MCBCS-20180716-E
+            BRANCH.CODE = 'EG0010':BRANCH.CODE
+        END
+        COMMISSION.TYPE.OLD = ""
+        COMMISSION.AMT.OLD = ""
+        COMM.CODE.EXIST = "FALSE"
+        COMM.CODE = ""
+        REM.POS.COMM = ""
+        IF Y.COMM.CHARGE NE Y.DEAL.CCY THEN
+            IF Y.DEAL.CCY NE "EGP" THEN
+                CCY1 = Y.DEAL.CCY
+                AMT1 = Y.DEAL.AMOUNT
+                CCY2 = Y.COMM.CHARGE
+                AMT2 = ""
+                EXCH.RATE = Y.COMM.RATE
+                CCY.MKT = "11"
+                CALL EXCHRATE(CCY.MKT, CCY1, AMT1, CCY2, AMT2, BASE.CCY, EXCH.RATE, "", LOCAL.AMOUNT, "")
+                Y.DEAL.AMOUNT = AMT2
+                Y.DEAL.CCY = Y.COMM.CHARGE
+                IF Y.COMM.CHARGE EQ "EGP" THEN
+                    IF Y.USD.RATE NE "" THEN
+                        CCY1 = Y.COMM.CHARGE
+                        AMT1 = AMT2
+                        AMT2 = ""
+                        BASE.CCY = ''
+                        EXCH.RATE = Y.USD.RATE
+                        CCY2 = "USD"
+                        CALL EXCHRATE(CCY.MKT, CCY1, AMT1, CCY2, AMT2, BASE.CCY, EXCH.RATE, "", LOCAL.AMOUNT, "")
+                        Y.DEAL.AMOUNT = AMT2
+                        Y.DEAL.CCY = "USD"
+                    END
+                END
+            END
+        END
 
-3.6 BB.MCP Overdraft Charge Dry-Run Check
-    ●    Specifically for channel BB.MCP: before real posting, does a VALIDATE-mode dry-run OFS call against
-         the built OFS record.
-    ●    If the dry-run response contains override ACCT.UNAUTH.OD → hard reject with 0011 (insufficient
-         balance), even if the earlier balance check passed. This is effectively a second, stricter balance/overdraft
-         gate specific to this channel.
+        IF SEND.COMMISSIONS.CALC NE "" THEN
+            GOSUB GO.CALC
+        END
+        OFSRECORD = Y.VERSION.NAME:'/I/':FUNCTION.ID:'/':GTS.CONTROL:'/':AUTH.FLAG:',':'OFS.SERVICE':'/':'123456/':BRANCH.CODE:',':Y.RECORD.ID:','
+        FOR TEMP.X = 1 TO OUT.TAG.VALUE.ARRAY.COUNT
+            OFS.NAME = FIELD(OUT.TAG.VALUE.ARRAY,FM,TEMP.X)
+* MCBCS-20180716-S
+*            IF OFS.NAME = "COMMISSION.TYPE" THEN
+            IF OFS.NAME EQ "COMMISSION.TYPE" THEN
+* MCBCS-20180716-E
+                COMMISSION.TYPE.OLD = FIELD(OUT.VALUES.ARRAY,FM,TEMP.X)
+                CHANGE "_" TO FM IN COMMISSION.TYPE.OLD
+                REM.POS.COMM = ""
+                LOCATE "OUTREMITCHG" IN COMMISSION.TYPE.OLD SETTING POS THEN
+* TMP.COMM.OLD = FIELD(COMMISSION.AMT.OLD,FM,POS)
+* IF TRIM(TMP.COMM.OLD) = "" THEN
+*               DEL COMMISSION.TYPE.OLD<POS>
+                    REM.POS.COMM = POS
+*END
+                END
+                REM.POS.COMM.OUTWARDCHG = ""
+                LOCATE "OUTWARDCHG" IN COMMISSION.TYPE.OLD SETTING POS THEN
+                    REM.POS.COMM.OUTWARDCHG = POS
+                END
+            END
+* MCBCS-20180716-S
+*            IF OFS.NAME = "COMMISSION.AMT" THEN
+            IF OFS.NAME EQ "COMMISSION.AMT" THEN
+* MCBCS-20180716-E
+                COMMISSION.AMT.OLD = FIELD(OUT.VALUES.ARRAY,FM,TEMP.X)
+                CHANGE "_" TO FM IN COMMISSION.AMT.OLD
+*    IF REM.POS.COMM <> "" THEN
+*       TMP.COMM.OLD = FIELD(COMMISSION.AMT.OLD,FM,REM.POS.COMM)
+*      TMP.COMM.OLD = TRIM(TMP.COMM.OLD[4,20])
+*     IF TRIM(TMP.COMM.OLD) = "" OR TRIM(TMP.COMM.OLD) = "0" THEN
+*        DEL COMMISSION.TYPE.OLD<REM.POS.COMM>
+*       DEL COMMISSION.AMT.OLD<REM.POS.COMM>
+*   END
+*          END
+*         IF  REM.POS.COMM.OUTWARDCHG <> "" THEN
+*            TMP.COMM.OLD = FIELD(COMMISSION.AMT.OLD,FM,REM.POS.COMM)
+*           COMM.OLD.TEMP = TMP.COMM.OLD
+*          TMP.COMM.OLD.CCY = TRIM(TMP.COMM.OLD[1,3])
+*         TMP.COMM.OLD = TRIM(TMP.COMM.OLD[4,20])
+*        IF TRIM(TMP.COMM.OLD) = "0" OR COMM.OLD.TEMP = "0" THEN
+*           DEL COMMISSION.TYPE.OLD<REM.POS.COMM.OUTWARDCHG>
+*                DEL COMMISSION.AMT.OLD<REM.POS.COMM.OUTWARDCHG>
+*           END
+*          ELSE
+*             IF OVERRIDE.CUST.COMM <> '' THEN
+*                IF OVERRIDE.CUST.COMM <> '0' THEN
+**                   COMMISSION.AMT.OLD<REM.POS.COMM.OUTWARDCHG> = TMP.COMM.OLD.CCY:" ":OVERRIDE.CUST.COMM
+*END
+*             ELSE
+**                DEL COMMISSION.TYPE.OLD<REM.POS.COMM.OUTWARDCHG>
+*             DEL COMMISSION.AMT.OLD<REM.POS.COMM.OUTWARDCHG>
+*          END
+*           END
+*      END
+*  END
+*MCBCS-20180930-S
+*---- FIX OVERRIDE AMOUNT 20180704----------*
+                IF REM.POS.COMM.OUTWARDCHG NE '' THEN
+                    IF OVERRIDE.CUST.COMM NE '' THEN
+                        IF OVERRIDE.CUST.COMM NE '0' THEN
+                            COMMISSION.AMT.OLD<REM.POS.COMM.OUTWARDCHG> = Y.COMM.CHARGE:" ":OVERRIDE.CUST.COMM
+                        END
+                    END
+                END
+*---- END FIX OVERRIDE AMOUNT 20180704---------*
 
-3.7 IBAN Validation
-    ●    If beneficiary account length = 29 → validated via IBANService.ValidateIBAN.
-    ●    If valid → sent as IBAN.BEN; if invalid or not IBAN-length → sent as plain BEN.ACCT.NO.
+                ARRAY.COMM.TYPES.DELETE = ""
+                COMM.OLD.COUNTER = DCOUNT(COMMISSION.AMT.OLD,FM)
+                FOR TEMP.COMM.COUNTER = 1 TO COMM.OLD.COUNTER
+                    TEMP.COMM.TYPE.OLD = FIELD(COMMISSION.TYPE.OLD,FM,TEMP.COMM.COUNTER)
+                    COMM.OLD.AMT = FIELD(COMMISSION.AMT.OLD,FM,TEMP.COMM.COUNTER)
+                    Y.TRIM.STRING =''
+                    Y.TRIM.STRING = COMM.OLD.AMT[4,20]
+                    TMP.COMM.OLD = TRIM(Y.TRIM.STRING)
+*      TMP.COMM.OLD = TRIM(COMM.OLD.AMT[4,20])
+* TAFJ Conversion_01042020 Start
+*                    IF TMP.COMM.OLD = "" THEN
+                    IF TMP.COMM.OLD EQ "" THEN
+* TAFJ Conversion_01042020 End					
+                        TMP.COMM.OLD = 0
+                    END
+                    IF TMP.COMM.OLD EQ "0" THEN
+                        ARRAY.COMM.TYPES.DELETE<-1> = TEMP.COMM.TYPE.OLD
+                    END
+                NEXT TEMP.COMM.COUNTER
+                COMM.OLD.COUNTER = DCOUNT(ARRAY.COMM.TYPES.DELETE,FM)
+                FOR TEMP.COMM.COUNTER = 1 TO COMM.OLD.COUNTER
+                    TEMP.COMM.TYPE.OLD = FIELD(ARRAY.COMM.TYPES.DELETE,FM,TEMP.COMM.COUNTER)
+                    LOCATE TEMP.COMM.TYPE.OLD IN COMMISSION.TYPE.OLD SETTING POS THEN
+                        COMM.OLD.AMT = FIELD(COMMISSION.AMT.OLD,FM,POS)
+                        Y.TRIM.STRING =''
+                        Y.TRIM.STRING = COMM.OLD.AMT[4,20]
+                        TMP.COMM.OLD = TRIM(Y.TRIM.STRING)
+*                        TMP.COMM.OLD = TRIM(COMM.OLD.AMT[4,20])
+                        TMP.COMM.CCY.OLD = TRIM(COMM.OLD.AMT[1,3])
+*IF TMP.COMM.CCY.OLD <> "" THEN
+                        IF TMP.COMM.CCY.OLD NE "" THEN
+* TAFJ Conversion_01042020 Start						
+*                            IF TMP.COMM.OLD = "" THEN
+                            IF TMP.COMM.OLD EQ "" THEN
+* TAFJ Conversion_01042020 End							
+                                TMP.COMM.OLD = 0
+                            END
+                        END
+                        IF TMP.COMM.OLD EQ "0" OR COMM.OLD.AMT EQ "0" THEN
+                            DEL COMMISSION.TYPE.OLD<POS>
+                            DEL COMMISSION.AMT.OLD<POS>
+                        END
+                    END
+                NEXT TEMP.COMM.COUNTER
+            END
+* MCBCS-20180716-S
+*            IF OFS.NAME = "BEN.OUR.CHARGES" THEN
+            IF OFS.NAME EQ "BEN.OUR.CHARGES" THEN
+* MCBCS-20180716-E
+                TYPE.CHARGE = FIELD(OUT.VALUES.ARRAY,FM,TEMP.X)
+            END
+* MCBCS-20180716-S
+*            IF OFS.NAME = "COMMISSION.CODE" THEN
+            IF OFS.NAME EQ "COMMISSION.CODE" THEN
+* MCBCS-20180716-E
+                COMM.CODE = TRIM(FIELD(OUT.VALUES.ARRAY,FM,TEMP.X))
+* MCBCS-20180716-S
+*                IF COMM.CODE = "" THEN
+                IF COMM.CODE EQ "" THEN
+* MCBCS-20180716-E
+* MCBCS-20180716-S
+*                    IF TYPE.CHARGE = "BEN" THEN
+                    IF TYPE.CHARGE EQ "BEN" THEN
+* MCBCS-20180716-E
+                        COMM.CODE = "CREDIT LESS CHARGES"
+* MCBC_QC422 S
+*                        OUT.VALUES.ARRAY[FM,TEMP.X,1] = COMM.CODE
+                         OUT.VALUES.ARRAY<TEMP.X,1> = COMM.CODE
+* MCBC_QC422 E
+                    END
+                END
+            END
+            I = ""
+* MCBCS-20180716-S
+*            IF OFS.NAME <> "COMMISSION.TYPE" THEN
+            IF OFS.NAME NE "COMMISSION.TYPE" THEN
+* MCBCS-20180716-E
+                LOCATE OFS.NAME IN Y.REMOVE.TAGS.ARRAY SETTING POS THEN
+                END
+                ELSE
+* MCBCS-20180716-S
+*                    IF OFS.NAME = "COMMISSION.AMT" THEN
+                    IF OFS.NAME EQ "COMMISSION.AMT" THEN
+* MCBCS-20180716-E
+                        OFS.NAME = "COMMISSION.TYPE"
+                        GOSUB SEND.OFS.MSG
+                        OFS.NAME = "COMMISSION.AMT"
+                    END
+                    GOSUB SEND.OFS.MSG
+                END
+            END
+        NEXT TEMP.X
+* MCBCS-20180716-S
+*        IF OFSRECORD <> "" THEN
+        IF OFSRECORD NE "" THEN
+* MCBCS-20180716-E
+* MCBCS-20180716-S
+*            IF EXTERNAL.REF.FLAG = "TRUE" THEN
+            IF EXTERNAL.REF.FLAG EQ "TRUE" THEN
+* MCBCS-20180716-E
+                OFSRECORD := "EXTERNAL.REF::=":Y.EXTERNAL.REF.NEW:","
+                OFSRECORD := "CHANNEL.CODE::=":CHNL.CODE:","
+            END
+            ORDERING_CUST = "BNK"
+            OFSRECORD := 'ORDERING.CUST:1:=':ORDERING_CUST:','
+            OFSRECORD.BEFORE = OFSRECORD
+            LCCY = "EGP"
+* MCBCS-20180716-S
+*            CALL OFS.GLOBUS.MANAGER(Y.OFS.SOURCE,OFSRECORD)
+            Y.OLD.OFS.SOURCE.ID = OFS$SOURCE.ID
+            CALL OFS.INITIALISE.SOURCE(Y.OFS.SOURCE,'','')
+            OFS.RESP = ''
+            Y.OFS.ERR = ''
 
-3.8 Charges/Commission Rule Logic
-    ●    BEN.OUR.CHARGES drives default COMMISSION.CODE when not explicitly supplied: OUR →
-         DEBIT PLUS CHARGES; BEN → CREDIT LESS CHARGES; SHA → DEBIT PLUS CHARGES
-    ●    Extra override: if resulting code is DEBIT PLUS CHARGES AND SRC.ACC.ID length > 12 →
-         commission code is cleared entirely (blank). This is a non-obvious business rule tied to account number
-         format/type.
+            CALL OFS.BULK.MANAGER(OFSRECORD,OFS.RESP,Y.OFS.ERR)
+            OFSRECORD = OFS.RESP
+            IF Y.OLD.OFS.SOURCE.ID THEN
+                CALL OFS.INITIALISE.SOURCE(Y.OLD.OFS.SOURCE.ID,'','')
+            END
+* MCBCS-20180716-E
+* MCBCS-20180716-S
+*            VAL = TRIM(OFSRECORD['/',3,1])[',',1,1]
+            Y.TRIM.DEL = ''
+            Y.TRIM.DEL = '/'
+            Y.TRIM.STRNG = ''
+            Y.TRIM.STRNG = FIELD(OFSRECORD,Y.TRIM.DEL,3,1)
+            VAL  = TRIM(Y.TRIM.STRNG)[',',1,1]
+* MCBCS-20180716-E
+            CUR.STATUS = '0006'
+* MCBCS-20180716-S
+*            REC.ID = TRIM(OFSRECORD['/',1,1])
+            Y.TRIM.DEL = ''
+            Y.TRIM.DEL = '/'
+            Y.TRIM.STRNG = ''
+            Y.TRIM.STRNG = FIELD(OFSRECORD,Y.TRIM.DEL,1,1)
+            REC.ID  = TRIM(Y.TRIM.STRNG)
+* MCBCS-20180716-E
+            RECORD.ID = REC.ID
+            IF VAL EQ '1' THEN
+                CUR.STATUS = '0000'
+            END
+            ELSE
+                NOTAUTHCOUNT =   COUNT(OFSRECORD,"NOT AUTH. RECORD NOT CHANGED")
+* MCBCS-20180716-S
+*                IF NOTAUTHCOUNT > 0 THEN
+                IF NOTAUTHCOUNT GT 0 THEN
+* MCBCS-20180716-E
+                    CUR.STATUS = '0000'
+                END
+            END
+            RETURN.CODE = CUR.STATUS
+* MCBCS-20180716-S
+*            IF FUNCTION.ID <> "VALIDATE" THEN
+            IF FUNCTION.ID NE "VALIDATE" THEN
+* MCBCS-20180716-E
+                GOSUB SAVE.MSG
+            END
+            ELSE
+                CALL F.READ(FN.CIB.API.LOG,MSG.ID,R.CIB.API.LOG,F.CIB.API.LOG,ERR1)
 
-3.9 Auto-Authorization (Maker-Checker Bypass)
-    ●     After successful posting, if CHANGE.AUTH.FLAG = "YES" and AUTH.FLAG = 1 and
-          AUTH.FLAG.NEW = "0": automatically calls CIB.MSG.AUTHORIZE.SC to auto-authorize the
-          transaction (system-driven authorization, not a human checker).
-This is a critical control to validate in TPH — confirm whether auto-auth is still config-driven per channel or
-hardcoded differently.
+                R.CIB.API.LOG<API.LOG.VERSION.NAME> = Y.VERSION.NAME
+                R.CIB.API.LOG<API.LOG.REC.ID> = REC.ID
+                R.CIB.API.LOG<API.LOG.O.MSG> = O.MSG
+                R.CIB.API.LOG<API.LOG.OFS.IN> = OFSRECORD.BEFORE
+                R.CIB.API.LOG<API.LOG.OFS.OUT> = OFSRECORD
+                CALL F.WRITE(FN.CIB.API.LOG,MSG.ID,R.CIB.API.LOG)
+* MCBCS-20180716-S
+*                CALL JOURNAL.UPDATE(MSG.ID)
+                IF NOT(PGM.VERSION) AND NOT(RUNNING.UNDER.BATCH) THEN
+                    CALL JOURNAL.UPDATE(MSG.ID)
+                END
+* MCBCS-20180716-E
+            END
+            GOSUB CREATE.RESPONSE
+        END
+    END
+    RETURN
+*****************************************************************************
+SEND.OFS.MSG:
+*************
+    OFS.NAME.COUNT.MV =  DCOUNT(OFS.NAME,"-")
+    OFS.VALUES = FIELD(OUT.VALUES.ARRAY,FM,TEMP.X)
+    OFS.VALUES = TRIM(OFS.VALUES)
+* MCBCS-20180716-S
+*    IF OFS.VALUES <> "" THEN
+    IF OFS.VALUES NE "" THEN
+* MCBCS-20180716-E
+* MCBCS-20180716-S
+*        IF OFS.NAME = "COMMISSION.TYPE" THEN
+        IF OFS.NAME EQ "COMMISSION.TYPE" THEN
+* MCBCS-20180716-E
+* MCBCS-20180716-S
+*            IF MV.ARRAY.COUNT = 1 THEN
+            IF MV.ARRAY.COUNT EQ 1 THEN
+* MCBCS-20180716-E
+                I = 1
+            END
+            OFS.VALUES = COMMISSION.TYPE.OLD
+            CHANGE FM TO "_" IN OFS.VALUES
+        END
+* MCBCS-20180716-S
+*        IF OFS.NAME = "COMMISSION.AMT" THEN
+        IF OFS.NAME EQ "COMMISSION.AMT" THEN
+* MCBCS-20180716-E
+            OFS.VALUES = COMMISSION.AMT.OLD
+            CHANGE FM TO "_" IN OFS.VALUES
+        END
+* MCBCS-20180716-S
+*        IF OFS.NAME = "CUSTOMER.RATE" THEN
+        IF OFS.NAME EQ "CUSTOMER.RATE" THEN
+* MCBCS-20180716-E
+* MCBCS-20180716-S
+*            IF ORG.ACC.CUR.TRG = ORG.ACC.CUR.SRC THEN
+            IF ORG.ACC.CUR.TRG EQ DEBIT.CCY.VALUE THEN
+* MCBCS-20180716-E
+                OFS.VALUES = ""
+            END
+        END
+        MV.ARRAY.COUNT = DCOUNT(OFS.VALUES,"_")
+* MCBCS-20180716-S
+*        IF MV.ARRAY.COUNT > 1 THEN
+        IF MV.ARRAY.COUNT GT 1 THEN
+* MCBCS-20180716-E
+            FOR I = 1 TO MV.ARRAY.COUNT
+                OFSRECORD := OFS.NAME:':':I:':=':OFS.VALUES['_',I,1]:','
+            NEXT
+        END
+        ELSE
+* MCBCS-20180716-S
+*            IF OFS.NAME.COUNT.MV > 0 THEN
+            IF OFS.NAME.COUNT.MV GT 0 THEN
+* MCBCS-20180716-E
+*  I = FIELD(OFS.NAME,"-",2)
+*  OFS.NAME = FIELD(OFS.NAME,"-",1)
+*** HALAFAWY ****
+                IF OFS.NAME NE 'COMMISSION.RATE' THEN
+                    OFSRECORD := OFS.NAME:':':I:':=':OFS.VALUES['_',I,1]:','
+                END
+            END
+            ELSE
+                OFSRECORD := OFS.NAME:"::=":OFS.VALUES:","
+            END
+        END
+*** 20180205 START
+        OFSRECORD = CHANGE(OFSRECORD,'~',"'_'")
+*** 20180205 END
+    END
 
-3.10 SMS / Online FT Journal Update
-    ●    On success, checks CIB.CHECK.SMS.RUN to decide whether to log the FT into CIB.ONLINE.FTS (used
-         presumably for SMS notification triggers) and fires JOURNAL.UPDATE.
+    RETURN
+*****************************************************************************
+SAVE.MSG:
+***********
+    CALL F.READ(FN.CIB.API.LOG,MSG.ID,R.CIB.API.LOG,F.CIB.API.LOG,ERR1)
 
-4. Response Contract (O.MSG)
-Format: HEADER.ID|STATUS|FT.ID|OFS.RECORD|PAID.AMOUNT|OVERRIDE|
+    R.CIB.API.LOG<API.LOG.SRVC.ID> = SRVC.ID
+    R.CIB.API.LOG<API.LOG.CHNL.CODE> = CHNL.CODE
+    R.CIB.API.LOG<API.LOG.MSG.ID> = MSG.ID
+    R.CIB.API.LOG<API.LOG.TOKEN.ID> = TOKEN.ID
+*   R.CIB.API.LOG<API.LOG.TAG.ARRAY> = Y.TAGS.ARRAY
+*   R.CIB.API.LOG<API.LOG.VALUES.ARRAY> = Y.VALUES.ARRAY
+    R.CIB.API.LOG<API.LOG.VERSION.NAME> = Y.VERSION.NAME
+    R.CIB.API.LOG<API.LOG.REC.ID> = REC.ID
+    R.CIB.API.LOG<API.LOG.FUNCTION.ID> = FUNCTION.ID
+    R.CIB.API.LOG<API.LOG.O.MSG> = O.MSG
+    R.CIB.API.LOG<API.LOG.OFS.IN> = OFSRECORD.BEFORE
+    R.CIB.API.LOG<API.LOG.OFS.OUT> = OFSRECORD
+    R.CIB.API.LOG<API.LOG.RETURN.CODE> = RETURN.CODE
 
- Status Code              Meaning
- 0000                     Success (FT posted)
- 0006                     Generic reject — insufficient balance OR channel restriction OR OFS posting failure
- 0011                     Insufficient balance — Business Banking / BB.MCP overdraft-specific variant
- 3003                     Posting restricted — customer industry / posting-restriction match
+    CALL F.WRITE(FN.CIB.API.LOG,MSG.ID,R.CIB.API.LOG)
+* MCBCS-20180716-S
+*    CALL JOURNAL.UPDATE(MSG.ID)
+    IF NOT(PGM.VERSION) AND NOT(RUNNING.UNDER.BATCH) THEN
+        CALL JOURNAL.UPDATE(MSG.ID)
+    END
+    RETURN
+*****************************************************************************
+GO.CALC:
+********
+*MCBCS-20180930-S
+    CONC.COMM.TYPES = ""
+    CONC.COMM.AMTS = ""
+    CONC.COMM.WAIVERS = ""
+    NEW.CONCESSION = CONCESSION
+    CONC.FLAG = ""
+    COUNTER.CHARGES = DCOUNT(SEND.COMMISSIONS.AMOUNTS,FM)
+    FOR TEMP.X = 1 TO COUNTER.CHARGES
+        TEMP.AMT = FIELD(SEND.COMMISSIONS.AMOUNTS,FM,TEMP.X)
+        CONC.COMM.TYPES<TEMP.X> =TRIM (FIELD(SEND.COMMISSIONS.CALC,FM,TEMP.X))
+        CONC.COMM.WAIVERS<TEMP.X> = TRIM(FIELD(SEND.COMMISSIONS.WAIVER,FM,TEMP.X))
+        IF TRIM(TEMP.AMT) EQ "" THEN
+            NEW.SEND.COMM = ""
+            NEW.SEND.COMM<1,1> = FIELD(SEND.COMMISSIONS.CALC,FM,TEMP.X)
+            NEW.SEND.COMM<2,1> = "COM"
+            TEMP.WAIVER = TRIM(FIELD(SEND.COMMISSIONS.WAIVER,FM,TEMP.X))
+            IF TEMP.WAIVER GT 0 AND TEMP.WAIVER NE 100 THEN
+                TEMP.WAIVER = 100 - TEMP.WAIVER
+            END
+            TEMP.AMT = ""
+            IF TEMP.WAIVER EQ "100" THEN
+                TEMP.AMT = "0"
+            END
+            Y.CUST.CONDITION<1,1> = TEMP.WAIVER
+            CH.TOT.CHARGE.LCCY = ''
+            CH.TOT.CHARGE.FCCY = ''
 
-Gap risk: these 4 status codes are CIB-custom, not standard T24/IRIS error codes. A full error code mapping table
-is required against whatever IRIS returns natively.
+*** HALAFAWY ****
+            Y.USD.RATE.NEW = Y.USD.RATE
+*            Y.DEAL.CCY = "USD"
+            IF Y.USD.RATE EQ "" THEN
+                IF Y.COMM.CHARGE EQ "USD" THEN
+                    IF Y.DEAL.CCY EQ "EGP" OR Y.DEAL.CCY EQ "USD" THEN
+                        Y.USD.RATE.NEW = Y.COMM.RATE
+                    END
+                END
+            END
+            IF ORG.ACC.CUR.TRG EQ "EGP" THEN
+                IF NEW.SEND.COMM<1,1> EQ "OUTWARDCHG" THEN
+                    Y.USD.RATE.NEW = Y.COMM.RATE
+                END
+            END
+            IF NEW.SEND.COMM<1,1> EQ "OUTWARDCHG" THEN
+                IF OVERRIDE.CUST.COMM NE '' THEN
+                    IF OVERRIDE.CUST.COMM NE '0' THEN
+                        TEMP.AMT = OVERRIDE.CUST.COMM
+                    END
+                END
+            END
+**************HEND S20230405*************************
+           IF ORG.ACC.CUR.TRG EQ "EGP" THEN
+                IF NEW.SEND.COMM<1,1> EQ "OUTWARDACH" THEN
+                    Y.USD.RATE.NEW = Y.COMM.RATE
+                END
+            END
+            IF NEW.SEND.COMM<1,1> EQ "OUTWARDACH" THEN
+                IF OVERRIDE.CUST.COMM NE '' THEN
+                    IF OVERRIDE.CUST.COMM NE '0' THEN
+                        TEMP.AMT = OVERRIDE.CUST.COMM
+                    END
+                END
+            END
+****************HEND E20230405********************************
+            Y.COMMISSION.RATE<1> = Y.USD.RATE.NEW
+            Y.COMMISSION.RATE<4> = "Y"
+            IF TEMP.AMT EQ "" THEN
+                CALL CALCULATE.CHARGE(MAIN.CUSTOMER,Y.DEAL.AMOUNT, Y.DEAL.CCY, "11", Y.COMMISSION.RATE ,ORG.ACC.CUR.SRC , Y.COMM.CHARGE ,NEW.SEND.COMM , Y.CUST.CONDITION, CH.TOT.CHARGE.LCCY, CH.TOT.CHARGE.FCCY)
+                IF Y.COMM.CHARGE EQ "EGP" THEN
+                    TEMP.AMT = NEW.SEND.COMM<4,1>
+                END
+                ELSE
+                    TEMP.AMT = NEW.SEND.COMM<5,1>
+                END
+            END
+        END
+        ELSE
+            TEMP.CCY = TEMP.AMT[1,3]
+            NEW.TEMP.AMT = TEMP.AMT[4,20]
+            IF Y.COMM.CHARGE NE TEMP.CCY THEN
+                CCY1 = TEMP.CCY
+                AMT1 = NEW.TEMP.AMT
+                CCY2 = Y.COMM.CHARGE
+                AMT2 = ""
+                EXCH.RATE = Y.COMM.RATE
+                CCY.MKT = "11"
+                BASE.CCY = ""
+                CALL EXCHRATE(CCY.MKT, CCY1, AMT1, CCY2, AMT2, BASE.CCY, EXCH.RATE, "", LOCAL.AMOUNT, "")
+                NEW.TEMP.AMT = AMT2
+                TEMP.AMT = NEW.TEMP.AMT
+            END
+            ELSE
+                TEMP.AMT = NEW.TEMP.AMT
+            END
+            CUST.PERCENT = TRIM(FIELD(SEND.COMMISSIONS.WAIVER,FM,TEMP.X))
+            IF CUST.PERCENT NE 100 THEN
 
-5. Config Tables This Routine Depends On (must be
-migrated/replicated)
- Table                         Purpose
- CIB.API.OVERRIDE              Per-channel: auth-flag behavior, OD-flag behavior, extra validation routine name,
-                               override-check mode, restricted posting codes & descriptions
- ST.CIB.FI.FT.PARAM            Per-channel: list of customer industry codes subject to Business Banking
-                               restrictions
- CIB.API.FT                    Idempotency/audit store — one record per MSG.ID with status history
- CIB.ONLINE.FTS                SMS/notification trigger log
+                IF CUST.PERCENT EQ "" THEN        ;* Note: NOT 0
+                    CUST.PERCENT = 1    ;* 100% of charge to be borne
+                END ELSE
+                    CUST.PERCENT = 100 - CUST.PERCENT
+                    CUST.PERCENT = CUST.PERCENT/100         ;* multiplication factor
+                END
+                TEMP.AMT = TEMP.AMT * CUST.PERCENT
+                CAL = "1"
+                CALL EB.ROUND.AMOUNT(Y.COMM.CHARGE,TEMP.AMT,CAL,"")
+            END
+            ELSE
+                TEMP.AMT = "0"
+            END
+        END
+        LOCATE "COMMISSION.AMT" IN OUT.TAG.VALUE.ARRAY SETTING POS THEN
+            COMM.AMT.POS = POS
+        END
+        IF TEMP.AMT EQ "" THEN
 
-6. External Routines Called (separate services to audit
-individually)
- Routine                                 Purpose
- CIB.API.VALIDATE.FT                     Channel/txn-type restriction check (API channel)
- GET.NET.AVL.BL                          Balance computation
- CIB.MT.MX                               Name transliteration for SWIFT MT→MX
- IBANService.ValidateIBAN                Standard T24 IBAN validation
- EXCHRATE                                Cross-currency conversion
- CIB.MSG.AUTHORIZE.SC                    Auto-authorization
- CIB.CHECK.SMS.RUN                       SMS trigger check
- Dynamic routine                         Channel-specific extra validation, resolved at runtime — needs discovery
- (CIB.API.OVERRIDE<API.OVR.R             of which channels populate it
- TN.NAME.OT>)
+        END
+        ELSE
+            IF NOT(ALPHA(TEMP.AMT[1,1])) THEN
+                OUT.VALUES.ARRAY<POS>["_",TEMP.X,1] = Y.COMM.CHARGE:" ":TEMP.AMT
+            END
+            ELSE
+                OUT.VALUES.ARRAY<POS>["_",TEMP.X,1] = TEMP.AMT
+                TEMP.AMT = TRIM(TEMP.AMT[4,20])
+            END
+        END
+        CONC.COMM.AMTS<TEMP.X> = TEMP.AMT
 
-7. Recommended TPH/IRIS Migration Checklist for This Service
-☐ Confirm IRIS "Create Outward Transfer" API request schema and map every one of the 51 input fields above
+        TEMP.CON.FIELD = TRIM(FIELD(NEW.CONCESSION,"_",TEMP.X))
+        IF TEMP.X NE "1" THEN
+            CONC.FLAG := "_"
+        END
+        IF TEMP.CON.FIELD EQ "N" OR TEMP.CON.FIELD EQ "" THEN
+            CONC.FLAG := "N"
+        END
+        ELSE
+            CONC.FLAG := TEMP.CON.FIELD
+        END
 
-☐ Reproduce idempotency behavior (cached-success replay) or confirm IRIS's native idempotency key handles it
-equivalently
-☐ Reproduce/relocate the CIB.API.VALIDATE.FT channel-restriction check
-☐ Reproduce Business Banking industry + posting-restriction rule engine (config-driven)
-☐ Reproduce available-balance + overdraft (OD.FLAG/AUTH.FLAG) logic, including cross-currency conversion
-☐ Reproduce BB.MCP dry-run overdraft charge check
-☐ Reproduce commission/charges default logic (OUR/BEN/SHA + account-length override)
-☐ Reproduce IBAN validation and MT→MX name transliteration
-☐ Reproduce auto-authorization logic and confirm per-channel config still applies
-☐ Build full error code mapping table: 0000/0006/0011/3003 (CIB-custom) → IRIS native codes
-☐ Confirm special-character sanitization on input is no longer needed (should be handled naturally by JSON in
-IRIS) but validate no silent data loss for those characters in narratives/names
-☐ Discover and separately audit all channel-specific dynamic extra-validation routines referenced via
-CIB.API.OVERRIDE
+    NEXT TEMP.X
 
-8. Channels Confirmed From Code
-API, VOS, BPM, BB.MCP, plus any channel with a row in CIB.API.OVERRIDE (config-driven, not hardcoded in
-this routine) — recommend pulling the full CIB.API.OVERRIDE table contents to get the definitive channel list.
+    IF CONC.FLAG NE '' THEN
+        GOSUB CHECK.CONCESSION
+    END
 
-9. Code Evolution / Technical Debt Notes
-The routine carries visible attribution comments spanning multiple years and authors, indicating incremental
-patching rather than periodic redesign. This is a signal that some logic may be undocumented tribal knowledge
-rather than formally specified requirements — each patch below should be traced back to its original change request
-where possible before being reproduced on TPH.
+    RETURN
+*****************************************************************************
+CHECK.CONCESSION:
+******************
+    CONC.CUST.RATE<1> =  Y.COMM.RATE
+    CONC.CUST.RATE<2> = Y.USD.RATE
+    CONC.FLAG = ""
+    CALL CIB.CALCULATE.CONCESSION(ORG.ACCOUNT,CHNL.CODE,Y.DEAL.AMOUNT,Y.DEAL.CCY,CONC.COMM.TYPES,CONC.COMM.AMTS,Y.COMM.CHARGE,CONC.COMM.WAIVERS,CONC.CUST.RATE,CONC.FLAG)
+    CONCESSION.FLAG = "N"
+    COUNTER.CONCESSION = DCOUNT(CONC.FLAG,FM)
+    CONCESSION.FLAG = CONC.FLAG
+    FOR TEMP.X = 1 TO COUNTER.CONCESSION
+        TEMP.VALUE = FIELD(CONC.FLAG,FM,TEMP.X)
+        IF TEMP.VALUE EQ "Y" THEN
+*CONCESSION.FLAG = "Y"
+            TEMP.AMT = CONC.COMM.AMTS<TEMP.X>
+            OUT.VALUES.ARRAY<COMM.AMT.POS>["_",TEMP.X,1] = Y.COMM.CHARGE:" ":TEMP.AMT
+        END
+    NEXT TEMP.X
+    CHANGE FM TO "_" IN CONCESSION.FLAG
 
- Marker / Author Tag         Approx. Date           What It Touched (from code)
- MCBCS                       14-Jun-2018            R18 upgrade retrofit — large-scale replacement of legacy @-
-                                                    notation and '=' comparisons with EQ/NE/GT/LT and
-                                                    F.READ calls; introduced FUNDS.TRANSFER$NAU
-                                                    handling
- NGDE                        2017–2018              Added CHARGES.ACCT.NO, CREDIT.THEIR.REF,
-                             (multiple)             DEBIT.VALUE.DATE, VERSION.NAME parameters; BPM-
-                                                    specific charge/version logic
- CIB20200607                 Jun-2020               VOS channel handling — UETR generation, version name
-                                                    override, SRC.CHANNEL truncation to 4 chars
- RANIA                       18-Sep-2022            Introduced BB.FLAG / Business Banking industry-restriction
-                                                    logic, ST.CIB.FI.FT.PARAM lookup, posting-restriction
-                                                    (3003) rejection path
- MENNA                       Jun-2023 / Jan-2024    Added OLD.CBE.CODE, NEW.CBE.CODE, SELL.CODE,
-                                                    CBE.NAR.AR fields — likely a Central Bank of Egypt
-                                                    reporting requirement
- HEND                        15-Aug-2024 / 25-      BB.MCP overdraft charge dry-run check
-                             Dec-2024               (CHECK.BB.MCP.OVERDRAFT.CHARGE); beneficiary-
-                                                    name reformatting logic for MT→MX and multi-part names
+    RETURN
 
-Recommendation: treat each dated block above as a separately traceable requirement when writing TPH/IRIS
-acceptance criteria, rather than migrating "the routine" as one undifferentiated unit.
-
-10. Open Questions / Assumptions for the Team
-    ●   What are the exact rules inside CIB.API.VALIDATE.FT (channel/txn-type restriction check)? Not visible
-        in this routine — needs its own source review.
-    ●   What industry codes and posting-restriction codes are currently configured in ST.CIB.FI.FT.PARAM and
-        CIB.API.OVERRIDE? Need a full data export, not just the logic.
-    ●   Is CBE reporting (OLD.CBE.CODE / NEW.CBE.CODE / SELL.CODE / CBE.NAR.AR) still required in
-        the same form on TPH, or does IRIS have native CBE reporting fields?
-    ●   Does IRIS provide native idempotency-key handling equivalent to the CIB.API.FT cached-replay behavior,
-        or must this be built in the orchestration layer?
-    ●   Who owns confirmation that auto-authorization (CIB.MSG.AUTHORIZE.SC) is an approved control
-        exception, and does Compliance need to re-approve it for TPH?
-    ●   Is the MT↔MX beneficiary-name transformation (CIB.MT.MX) still needed, or does IRIS handle ISO
-        20022 name formatting natively?
-    ●   Which channels currently populate the dynamic extra-validation routine
-        (CIB.API.OVERRIDE<API.OVR.RTN.NAME.OT>), and what does each one do?
-
-11. Review & Sign-off
- Role                                 Name                       Date                   Comments
- Prepared by
- T24 Technical Reviewer
- TPH/IRIS Solution Architect
- Business/Product Owner
- Compliance/Controls (for auto-auth
- & OD logic)
+*****************************************************************************
+PROGRAM.END:
+************
+    RETURN
+END
 
