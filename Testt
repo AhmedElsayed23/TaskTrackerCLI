@@ -1,1 +1,65 @@
 
+*-----------------------------------------------------------------------------
+* <Rating>-30</Rating>
+*-----------------------------------------------------------------------------
+    SUBROUTINE VCR.CIB.INC.SWFT.COL.ID
+*********************************** AUDIT INFORMATION ***********************
+* 1. Author&Date created  : AHMED 20251207
+* 2. Site name            : CIB
+* 3. Product              : 
+* 4. Routine type         : VCR
+* 5. Installed            : VERSION
+* 6. E.V.B                : ST.CIB.INC.SWFT.COL,INPUT
+*****************************************************************************
+
+********************************** PROGRAM DESCRIPTION **********************
+* 7. Description
+* -------------------
+* This Check Record Routine to validates over the ID
+*
+* 8. Incoming arguments
+* -------------------------------
+* a)
+*
+* 9. Outgoing arguments
+* -------------------------------
+*******************************************************************************
+* Include files
+    $INSERT I_COMMON
+    $INSERT I_EQUATE
+*****************************************************************************
+    GOSUB PROCESS
+    GOTO PROGRAM.END
+
+    RETURN
+*****************************************************************************
+PROCESS:
+********
+    Y.ID = ID.NEW
+
+    Y.UNIV = FIELD(Y.ID, '/', 1)
+    Y.FEES = FIELD(Y.ID, '/', 2)
+    Y.STID = FIELD(Y.ID, '/', 3)
+
+    IF LEN(Y.ID) EQ 20 THEN
+        IF LEN(Y.UNIV) NE 3 OR LEN(Y.FEES) NE 3 OR LEN(Y.STID) NE 12 THEN
+            E = "Invalid ID: use UNIV(3)/FEES(3)/STID(12)"
+            MESSAGE = 'REPEAT'
+            CALL STORE.END.ERROR
+            RETURN
+        END
+    END ELSE
+        E = "Invalid ID length"
+        MESSAGE = 'REPEAT'
+        CALL STORE.END.ERROR
+        RETURN
+    END
+    
+
+    RETURN
+*****************************************************************************
+PROGRAM.END:
+************
+    RETURN
+END
+
