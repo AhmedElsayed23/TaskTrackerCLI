@@ -1,1 +1,19 @@
 
+    Y.ID = ID.NEW
+
+    Y.UNIV = FIELD(Y.ID, '/', 1)
+    Y.FEES = FIELD(Y.ID, '/', 2)
+
+    IF LEN(Y.ID) EQ 7 THEN
+        IF LEN(Y.UNIV) NE 3 OR LEN(Y.FEES) NE 3 THEN
+            E = "Invalid ID: use UNIV(3)/FEES(3)"
+            MESSAGE = 'REPEAT'
+            CALL STORE.END.ERROR
+            RETURN
+        END
+    END ELSE
+        E = "Invalid ID length"
+        MESSAGE = 'REPEAT'
+        CALL STORE.END.ERROR
+        RETURN
+    END
