@@ -1,1 +1,575 @@
+*-----------------------------------------------------------------------------
+* <Rating>477</Rating>
+*-----------------------------------------------------------------------------
+    SUBROUTINE CIB.CHECK.SMS.RUN(IN.MSG.SMS,O.MSG)
+************************ AUDIT INFORMATION *********************************
+* 1. Author&Date created  : NGDE20151028
+* 2. Site name            : CIB
+* 3. Product              : FT
+* 4. Routine type         : BATCH
+* 5. Installed            :
+* 6. E.V.B record         :
+*****************************************************************************
+************************ PROGRAM DESCRIPTION ********************************
+* 7. Description
+* --------------
+*    - Main Line Routine TO CHECK AUTHORIZED FILE
+*
+* 8. Incoming arguments
+* ---------------------
+*
+* 9. Outgoing arguments
+* ---------------------
+* 10. Modification history :
+* --------------------------
+*  Date             Author                Release Update
+*
+*  29-Jun-2018      Srikanth.M            R18 Upgrade Code Retrofit
+*                                         Reference: MCBCS-20180629
+
+* 27-01-2019       ENGY DESSOUKI         R18 MULTI APPLICATION
+*                                                    CIB-20190127
+*****************************************************************************
+* Include files
+*--------------
+* MCBCS-20180629 S
+    $INSERT I_COMMON
+    $INSERT I_EQUATE
+    $INSERT I_F.ACCOUNT
+    $INSERT I_F.CUSTOMER
+    $INSERT I_F.CURRENCY
+    $INSERT I_F.FUNDS.TRANSFER
+    $INSERT I_F.COMPANY
+    $INSERT I_F.CIB.ONLINE.FTS
+    $INSERT I_F.CIB.SMS.REPORT
+    $INSERT I_F.CIB.SMS.REP.CONCAT
+    $INSERT I_CIB.SMS.RUN.COMMON
+    $INSERT I_F.CIB.SMS.FORMAT
+    $INSERT I_F.CIB.CUST.ADD.INFO
+    $INSERT I_F.CIB.SMS.MOBILE
+* MCBCS-20180629 E
+    Y.SPART = "|"
+*PROCESS.ID = FIELD(IN.MSG.SMS,"|",'1')
+*SEND.FLAG = FIELD(IN.MSG.SMS,"|",'2')
+    PROCESS.ID = FIELD(IN.MSG.SMS,Y.SPART,'1')
+    SEND.FLAG = FIELD(IN.MSG.SMS,Y.SPART,'2')
+    GOSUB OPEN.FILES
+    GOSUB PROCESS
+    GOTO PROGRAM.END
+
+    RETURN
+*****************************************************************************
+PROCESS:
+********
+    O.MSG = "NO"
+* MCBCS - 20180629- S
+*    IF SEND.FLAG = "YES" THEN
+    IF SEND.FLAG EQ "YES" THEN
+* MCBCS - 20180629- E
+        CALL F.READ(FN.CIB.ONLINE.FTS , PROCESS.ID ,R.CIB.ONLINE.FTS ,F.CIB.ONLINE.FTS,ERR1)
+        IF R.CIB.ONLINE.FTS THEN
+            Y.DATE = R.CIB.ONLINE.FTS<ONL.FT.DATE.ADDED>
+            Y.APP.NAME = R.CIB.ONLINE.FTS<ONL.FT.APP.NAME>
+* MCBCS - 20180629- S
+*            IF Y.APP.NAME = "FBNK.FUNDS.TRANSFER" THEN
+            IF Y.APP.NAME EQ "FBNK.FUNDS.TRANSFER" THEN
+* MCBCS - 20180629- E
+                GOSUB GET.LOCAL.FIELDS
+                GOSUB PROCESS.FILE
+            END
+        END
+    END
+    ELSE
+        GOSUB GET.LOCAL.FIELDS
+        GOSUB PROCESS.FILE
+    END
+
+    RETURN
+*****************************************************************************
+PROCESS.FILE:
+**************
+*/////////////////// FBNK.FUNDS.TRANSFER //////////////////////////////////
+    FN.FUNDS.TRANSFER.NAU =  'FBNK.FUNDS.TRANSFER$NAU'
+    F.FUNDS.TRANSFER.NAU = ''
+    CALL OPF(FN.FUNDS.TRANSFER.NAU ,F.FUNDS.TRANSFER.NAU)
+    CALL F.READ (FN.FUNDS.TRANSFER.NAU,PROCESS.ID, R.FT, F.FUNDS.TRANSFER.NAU, ERR1)
+    IF NOT(R.FT) THEN
+*/////////////////// FBNK.FUNDS.TRANSFER //////////////////////////////////
+        FN.FUNDS.TRANSFER =  'FBNK.FUNDS.TRANSFER'
+        F.FUNDS.TRANSFER = ''
+        CALL OPF(FN.FUNDS.TRANSFER,F.FUNDS.TRANSFER)
+        CALL F.READ (FN.FUNDS.TRANSFER,PROCESS.ID, R.FT, F.FUNDS.TRANSFER, ERR1)
+        IF R.FT THEN
+            GOSUB PROCESS.CNT
+* MCBCS - 20180629- S
+*            IF SEND.FLAG = "YES" THEN
+            IF SEND.FLAG EQ "YES" THEN
+* MCBCS - 20180628- E
+                CALL F.DELETE(FN.CIB.ONLINE.FTS,PROCESS.ID)
+* MCBCS - 20180628- S
+*                CALL JOURNAL.UPDATE(PROCESS.ID)
+                IF NOT(PGM.VERSION) AND NOT(RUNNING.UNDER.BATCH) THEN
+                    CALL JOURNAL.UPDATE(PROCESS.ID)
+                END
+* MCBCS - 20180628- E
+            END
+        END
+    END
+    ELSE
+* MCBCS - 20180628- S
+*        IF SEND.FLAG = "NO" THEN
+        IF SEND.FLAG EQ "NO" THEN
+* MCBCS - 20180628- E
+            GOSUB PROCESS.CNT
+        END
+    END
+    RETURN
+*****************************************************************************
+PROCESS.CNT:
+************
+    E.CHANNEL = ""
+    TXN.TYPE = R.FT<FT.TRANSACTION.TYPE>
+    Y.SRC.CHANNEL =  R.FT<FT.LOCAL.REF,Y.SRC.CHANNEL.POS>
+
+* MCBCS - 20180628- S
+*    IF SEND.FLAG = "YES" THEN
+    IF SEND.FLAG EQ "YES" THEN
+* MCBCS - 20180628- E
+        GOSUB SEND.XML
+    END
+    GOSUB CHECK.CUSTOMER
+
+* MCBCS - 20180628- S
+*    IF CUSTOMER.SAME = "FALSE" THEN
+    IF CUSTOMER.SAME EQ "FALSE" THEN
+* MCBCS - 20180628- E
+        SMS.FORMAT.ID = "FT-":TXN.TYPE:"-":Y.SRC.CHANNEL:"-DR"
+        GOSUB CHECK.EXIST
+* MCBCS - 20180628- S
+*        IF READ.FLAG = "TRUE" THEN
+        IF READ.FLAG EQ "TRUE" THEN
+* MCBCS - 20180628- E
+            GOSUB CHECK.DEBIT.MSG
+        END
+        ELSE
+            SMS.FORMAT.ID = "FT-":TXN.TYPE:"-DR"
+* MCBCS - 20180628- S
+*            IF READ.FLAG = "TRUE" THEN
+            IF READ.FLAG EQ "TRUE" THEN
+* MCBCS - 20180628- E
+                GOSUB CHECK.DEBIT.MSG
+            END
+        END
+
+* MCBCS - 20180628- S
+*        IF TXN.TYPE[1,2] <> "OT" THEN
+        IF TXN.TYPE[1,2] NE "OT" THEN
+* MCBCS - 20180628- E
+            SMS.FORMAT.ID = "FT-":TXN.TYPE:"-":Y.SRC.CHANNEL:"-CR"
+            GOSUB CHECK.EXIST
+* MCBCS - 20180628- S
+*            IF READ.FLAG = "TRUE" THEN
+            IF READ.FLAG EQ "TRUE" THEN
+* MCBCS - 20180628- E
+                GOSUB CHECK.CREDIT.MSG
+            END
+            ELSE
+                SMS.FORMAT.ID = "FT-":TXN.TYPE:"-CR"
+                GOSUB CHECK.EXIST
+* MCBCS - 20180628- S
+*                IF READ.FLAG = "TRUE" THEN
+                IF READ.FLAG EQ "TRUE" THEN
+* MCBCS - 20180628- E
+                    GOSUB CHECK.CREDIT.MSG
+                END
+            END
+        END
+        ELSE
+***   CHECK.OT *******
+            Y.SRC.CHANNEL =  R.FT<FT.LOCAL.REF,Y.SRC.CHANNEL.POS>
+            SMS.FORMAT.ID = "FT-":TXN.TYPE:"-":Y.SRC.CHANNEL
+            GOSUB CHECK.EXIST
+* MCBCS - 20180628- S
+*            IF READ.FLAG = "TRUE" THEN
+            IF READ.FLAG EQ "TRUE" THEN
+* MCBCS - 20180628- E
+                CUSTOMER.ID = ""
+                ACCT.ID = R.FT<FT.DEBIT.ACCT.NO>
+                GOSUB GET.CUSTOMER.NO
+* MCBCS - 20180628- S
+*                IF READ.FLAG = "TRUE" THEN
+                IF READ.FLAG EQ "TRUE" THEN
+* MCBCS - 20180628- E
+                    GOSUB CHCK.E.CHANEL
+* MCBCS - 20180628- S
+*                    IF E.CHANNEL = "YES" THEN
+                    IF E.CHANNEL EQ "YES" THEN
+* MCBCS - 20180628- E
+                        REP.ID= CUSTOMER.ID:"|":TXN.TYPE
+                        GOSUB CHECK.SEND.SMS
+*             CALL CIB.SMS.COMPOSE.RUN(SMS.FORMAT.ID,REP.ID,Y.APP.NAME:"|":PROCESS.ID)
+                    END
+                END
+            END
+        END
+    END
+
+    RETURN
+*****************************************************************************
+CHECK.DEBIT.MSG:
+****************
+    CUSTOMER.ID = ""
+    ACCT.ID = R.FT<FT.DEBIT.ACCT.NO>
+    GOSUB GET.CUSTOMER.NO
+* MCBCS - 20180628- S
+*    IF READ.FLAG = "TRUE" THEN
+    IF READ.FLAG EQ "TRUE" THEN
+* MCBCS - 20180628- E
+        GOSUB CHCK.E.CHANEL
+* MCBCS - 20180628- S
+*        IF E.CHANNEL = "YES" THEN
+        IF E.CHANNEL EQ "YES" THEN
+* MCBCS - 20180628- E
+            REP.ID= CUSTOMER.ID:"|":TXN.TYPE
+            GOSUB CHECK.SEND.SMS
+*      CALL CIB.SMS.COMPOSE.RUN(SMS.FORMAT.ID,REP.ID,Y.APP.NAME:"|":PROCESS.ID)
+        END
+    END
+
+    RETURN
+*****************************************************************************
+CHECK.CREDIT.MSG:
+*****************
+    CUSTOMER.ID = ""
+    ACCT.ID = R.FT<FT.CREDIT.ACCT.NO>
+    GOSUB GET.CUSTOMER.NO
+* MCBCS - 20180628- S
+*    IF READ.FLAG = "TRUE" THEN
+    IF READ.FLAG EQ "TRUE" THEN
+* MCBCS - 20180628- E
+        GOSUB CHCK.E.CHANEL
+* MCBCS - 20180628- S
+*        IF E.CHANNEL = "YES" THEN
+        IF E.CHANNEL EQ "YES" THEN
+* MCBCS - 20180628- E
+            REP.ID= CUSTOMER.ID:"|":TXN.TYPE
+            GOSUB CHECK.SEND.SMS
+*           CALL CIB.SMS.COMPOSE.RUN(SMS.FORMAT.ID,REP.ID,Y.APP.NAME:"|":PROCESS.ID)
+        END
+    END
+
+    RETURN
+*****************************************************************************
+SEND.XML:
+*********
+    SMS.FORMAT.ID = "FT-":TXN.TYPE:"-":Y.SRC.CHANNEL
+* MCBCS - 20180628- S
+*    IF TXN.TYPE[1,2] <> "OT" THEN
+    IF TXN.TYPE[1,2] NE "OT" THEN
+* MCBCS - 20180628- E
+* MCBCS - 20180628- S
+*        IF TXN.TYPE = "ACMP" THEN
+        IF TXN.TYPE EQ "ACMP" THEN
+* MCBCS - 20180628- E
+            SMS.FORMAT.ID = "FT-":TXN.TYPE:"-XML"
+        END
+        ELSE
+            SMS.FORMAT.ID = SMS.FORMAT.ID:"-XML"
+        END
+
+**          SMS.FORMAT.ID = "FT-":TXN.TYPE:"-XML"
+*---------CIB-20190127----S----*
+*  FOLDER.NAME = "CIB.FORMAT.XML/OUTPUT/"
+        FOLDER.NAME = "/gpfs/t24r20Shared/INTERFACES/CIB.FORMAT.XML/OUTPUT/"
+*---------CIB-20190127----S----*
+        FOLDER.ID = PROCESS.ID
+        CALL CIB.XML.COMPOSE.RUN(SMS.FORMAT.ID,FOLDER.ID:"|":FOLDER.NAME,Y.APP.NAME:"|":PROCESS.ID)
+    END
+    ELSE
+        Y.SRC.CHANNEL =  R.FT<FT.LOCAL.REF,Y.SRC.CHANNEL.POS>
+*        Y.SRC.CHANNEL = "CR2"
+        SMS.FORMAT.ID =  "FT-":TXN.TYPE:"-":Y.SRC.CHANNEL:"-XML"
+*---------CIB-20190127----S----*
+
+*FOLDER.NAME = "CIB.FORMAT.XML/OUTPUT/"
+        FOLDER.NAME = "/gpfs/t24r20Shared/INTERFACES/CIB.FORMAT.XML/OUTPUT/"
+*---------CIB-20190127----S----*
+        FOLDER.ID = PROCESS.ID
+        CALL CIB.XML.COMPOSE.RUN(SMS.FORMAT.ID,FOLDER.ID:"|":FOLDER.NAME,Y.APP.NAME:"|":PROCESS.ID)
+
+    END
+    RETURN
+*****************************************************************************
+CHECK.SEND.SMS:
+****************
+* MCBCS - 20180628- S
+*    IF SEND.FLAG = "YES" THEN
+    IF SEND.FLAG EQ "YES" THEN
+* MCBCS - 20180628- E
+        CALL CIB.SMS.COMPOSE.RUN(SMS.FORMAT.ID,REP.ID,Y.APP.NAME:"|":PROCESS.ID)
+        O.MSG = "CALLED"
+    END
+    ELSE
+        O.MSG = "YES"
+    END
+
+    RETURN
+*****************************************************************************
+CHECK.SMS.ALERT:
+***************
+    READ.FLAG = "FALSE"
+    CALL F.READ (FN.CUSTOMER,CUSTOMER.ID , R.CUSTOMER, F.CUSTOMER, ERR1)
+    Y.SMS.ALERT = R.CUSTOMER<EB.CUS.LOCAL.REF,SMS.ALERT.POS>
+    Y.SMS.ALERT.COUNT = DCOUNT(Y.SMS.ALERT,SM)
+* MCBCS - 20180628- S
+*    IF Y.SMS.ALERT.COUNT > 0 THEN
+    IF Y.SMS.ALERT.COUNT GT 0 THEN
+* MCBCS - 20180628- E
+        FOR X.COUNT = 1 TO Y.SMS.ALERT.COUNT
+            Y.SMS.ALERT.VALUE = FIELD(Y.SMS.ALERT,SM,X.COUNT)
+* MCBCS - 20180628- S
+*            IF Y.SMS.ALERT.VALUE = Y.SERVICE.DESC THEN
+            IF Y.SMS.ALERT.VALUE EQ Y.SERVICE.DESC THEN
+* MCBCS - 20180628- E
+                READ.FLAG = "TRUE"
+                X.COUNT = Y.SMS.ALERT.COUNT + 3
+            END
+            ELSE
+* MCBCS - 20180628- S
+*                IF Y.SERVICE.DESC = "GET.MOBILE.APP" THEN
+                IF Y.SERVICE.DESC EQ "GET.MOBILE.APP" THEN
+* MCBCS - 20180628- E
+                    GOSUB GET.MOBILE.APP
+                END
+            END
+        NEXT X.COUNT
+    END
+    ELSE
+* MCBCS - 20180628- S
+*        IF Y.SERVICE.DESC = "GET.MOBILE.APP" THEN
+        IF Y.SERVICE.DESC EQ "GET.MOBILE.APP" THEN
+* MCBCS - 20180628- E
+            GOSUB GET.MOBILE.APP
+        END
+    END
+    RETURN
+*****************************************************************************
+GET.MOBILE.APP:
+***************
+*/////////////////// CIB.SMS.MOBILE //////////////////////////////////
+    FN.CIB.SMS.MOBILE =  'F.CIB.SMS.MOBILE'
+    F.CIB.SMS.MOBILE = ''
+    CALL OPF(FN.CIB.SMS.MOBILE ,F.CIB.SMS.MOBILE)
+
+    R.CIB.SMS.MOBILE = ""
+    Y.NEW.VALUE = ACCT.ID
+    CALL F.READ(FN.CIB.SMS.MOBILE,Y.NEW.VALUE:".":SMS.FORMAT.ID ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+    IF R.CIB.SMS.MOBILE THEN
+
+    END
+    ELSE
+        Y.SAPRT = "-"
+        TXN.TYPE = FIELD(SMS.FORMAT.ID,Y.SAPRT,2)
+        CALL F.READ(FN.CIB.SMS.MOBILE,Y.NEW.VALUE:".":TXN.TYPE ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+        IF R.CIB.SMS.MOBILE THEN
+
+        END
+        ELSE
+            CALL F.READ(FN.CIB.SMS.MOBILE,CUSTOMER.ID:".":SMS.FORMAT.ID ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+            IF R.CIB.SMS.MOBILE THEN
+
+            END
+            ELSE
+                TXN.TYPE = FIELD(SMS.FORMAT.ID,Y.SAPRT,2)
+                CALL F.READ(FN.CIB.SMS.MOBILE,CUSTOMER.ID:".":TXN.TYPE ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+                IF R.CIB.SMS.MOBILE THEN
+
+                END
+                ELSE
+                    R.CIB.SMS.MOBILE = ""
+                END
+            END
+        END
+    END
+    IF R.CIB.SMS.MOBILE THEN
+        READ.FLAG = "TRUE"
+        E.CHANNEL = "YES"
+    END
+
+    RETURN
+*****************************************************************************
+CHCK.E.CHANEL:
+**************
+* MCBCS - 20180628- S
+*    IF E.CHANNEL <> "YES" THEN
+    IF E.CHANNEL NE "YES" THEN
+* MCBCS - 20180628- E
+        E.CHANNEL = "NO"
+        CALL F.READ (FN.CUSTOMER,CUSTOMER.ID , R.CUSTOMER, F.CUSTOMER, ERR1)
+        IF R.CUSTOMER THEN
+            E.CHANNEL = R.CUSTOMER<EB.CUS.LOCAL.REF,E.SERV.AGREE.POS>
+            E.OTP =  R.CUSTOMER<EB.CUS.LOCAL.REF,OTP.AGREE.POS>
+        END
+* MCBCS - 20180628- S
+*        IF E.CHANNEL = "Y" THEN
+        IF E.CHANNEL EQ "Y" THEN
+* MCBCS - 20180628- E
+            E.CHANNEL = "YES"
+        END
+* MCBCS - 20180628- S
+*        IF E.OTP = "Y" THEN
+        IF E.OTP EQ "Y" THEN
+* MCBCS - 20180628- E
+            E.CHANNEL = "YES"
+        END
+
+    END
+    RETURN
+*****************************************************************************
+CHECK.EXIST:
+************
+    CALL F.READ(FN.CIB.SMS.FORMAT, SMS.FORMAT.ID ,R.CIB.SMS.FORMAT,F.CIB.SMS.FROMAT,ERR1)
+    IF R.CIB.SMS.FORMAT THEN
+        Y.SERVICE.DESC = R.CIB.SMS.FORMAT<CIBSF.SERVICE.DESC>
+        READ.FLAG = "TRUE"
+    END
+    ELSE
+        READ.FLAG = "FALSE"
+    END
+    RETURN
+*****************************************************************************
+GET.CUSTOMER.NO:
+***************
+    CALL F.READ(FN.ACCOUNT, ACCT.ID , R.ACCOUNT, F.ACCOUNT, ERR1)
+* MCBCS - 20180628- S
+*    IF R.ACCOUNT<AC.JOINT.HOLDER> <> "" THEN
+    IF R.ACCOUNT<AC.JOINT.HOLDER> NE "" THEN
+* MCBCS - 20180628- E
+* MCBCS - 20180628- S
+*        IF R.ACCOUNT<AC.RELATION.CODE> = '99' THEN
+        IF R.ACCOUNT<AC.RELATION.CODE> EQ '99' THEN
+* MCBCS - 20180628- E
+            CUSTOMER.ID = R.ACCOUNT<AC.JOINT.HOLDER>
+        END
+        ELSE
+            CUSTOMER.ID = R.ACCOUNT<AC.CUSTOMER>
+        END
+    END
+    ELSE
+        CUSTOMER.ID = R.ACCOUNT<AC.CUSTOMER>
+    END
+
+    GOSUB CHECK.SMS.ALERT
+    RETURN
+*****************************************************************************
+CHECK.CUSTOMER:
+************
+    DEBIT.ACC = R.FT<FT.DEBIT.ACCT.NO>
+    CREDIT.ACC = R.FT<FT.CREDIT.ACCT.NO>
+    CALL F.READ (FN.ACCOUNT, CREDIT.ACC , R.ACCOUNT, F.ACCOUNT, ERR1)
+    CALL F.READ (FN.ACCOUNT, DEBIT.ACC, R.ACCOUNT.NEW, F.ACCOUNT, ERR1)
+    CUSTOMER.SAME = "TRUE"
+* MCBCS - 20180628- S
+*    IF R.ACCOUNT<AC.CUSTOMER> NE R.ACCOUNT.NEW<AC.CUSTOMER> THEN
+    IF R.ACCOUNT<AC.CUSTOMER> NE R.ACCOUNT.NEW<AC.CUSTOMER> THEN
+* MCBCS - 20180628- E
+* MCBCS - 20180628- S
+*        IF R.ACCOUNT<AC.JOINT.HOLDER> = R.ACCOUNT.NEW<AC.CUSTOMER> THEN
+        IF R.ACCOUNT<AC.JOINT.HOLDER> EQ R.ACCOUNT.NEW<AC.CUSTOMER> THEN
+* MCBCS - 20180628- E
+* MCBCS - 20180628- S
+*            IF R.ACCOUNT<AC.RELATION.CODE> = '99' THEN
+            IF R.ACCOUNT<AC.RELATION.CODE> EQ '99' THEN
+* MCBCS - 20180628- E
+            END
+            ELSE
+                CUSTOMER.SAME = "FALSE"
+            END
+        END
+        ELSE
+* MCBCS - 20180628- S
+*            IF R.ACCOUNT.NEW<AC.JOINT.HOLDER> = R.ACCOUNT<AC.CUSTOMER> THEN
+            IF R.ACCOUNT.NEW<AC.JOINT.HOLDER> EQ R.ACCOUNT<AC.CUSTOMER> THEN
+* MCBCS - 20180628- E
+* MCBCS - 20180628- S
+*                IF R.ACCOUNT.NEW<AC.RELATION.CODE> = '99' THEN
+                IF R.ACCOUNT.NEW<AC.RELATION.CODE> EQ '99' THEN
+* MCBCS - 20180628- E
+                END
+                ELSE
+                    CUSTOMER.SAME = "FALSE"
+                END
+            END
+            ELSE
+                CUSTOMER.SAME = "FALSE"
+            END
+        END
+    END
+    Y.FT.NARR =  R.FT<FT.LOCAL.REF,Y.FT.TXN.NARR.POS>
+* MCBCS - 20180628- S
+*    IF TRIM(Y.FT.NARR) = "IB. Settlement of My Credit Card" THEN
+    IF TRIM(Y.FT.NARR) EQ "IB. Settlement of My Credit Card" THEN
+* MCBCS - 20180628- E
+        CUSTOMER.SAME = "TRUE"
+    END
+
+    RETURN
+*****************************************************************************
+OPEN.FILES:
+***********
+*/////////////////// CIB.ONLINE.FTS ////////////////////////////
+    FN.CIB.ONLINE.FTS = 'F.CIB.ONLINE.FTS'
+    F.CIB.ONLINE.FTS = ''
+    CALL OPF(FN.CIB.ONLINE.FTS ,F.CIB.ONLINE.FTS)
+
+*/////////////////// CIB.SMS.FROMAT //////////////////////////////////
+    FN.CIB.SMS.FORMAT =  'F.CIB.SMS.FORMAT'
+    F.CIB.SMS.FORMAT = ''
+    CALL OPF(FN.CIB.SMS.FORMAT ,F.CIB.SMS.FORMAT)
+
+
+*/////////////////// CIB.CUST.ADD.INFO //////////////////////////////////
+    FN.CIB.CUST.ADD.INFO =  'F.CIB.CUST.ADD.INFO'
+    F.CIB.CUST.ADD.INFO = ''
+    CALL OPF(FN.CIB.CUST.ADD.INFO ,F.CIB.CUST.ADD.INFO)
+
+*/////////////////// ACCOUNT //////////////////////////////////
+    FN.ACCOUNT = 'F.ACCOUNT'
+    F.ACCOUNT = ''
+    CALL OPF(FN.ACCOUNT ,F.ACCOUNT)
+
+*/////////////////// CUSTOMER //////////////////////////////////
+    FN.CUSTOMER = 'F.CUSTOMER'
+    F.CUSTOMER  = ''
+    CALL OPF(FN.CUSTOMER,F.CUSTOMER)
+
+
+    RETURN
+*****************************************************************************
+GET.LOCAL.FIELDS:
+*****************
+    LOCAL.APPLICATION = 'CUSTOMER'
+    LOCAL.FIELD = 'SMS.ALERT':VM:'E.SERV.AGREE':VM:'OTP.AGREE'
+    LOCAL.POSITION = ''
+
+    CALL MULTI.GET.LOC.REF(LOCAL.APPLICATION,LOCAL.FIELD,LOCAL.POSITION)
+
+    SMS.ALERT.POS = LOCAL.POSITION<1,1>
+    E.SERV.AGREE.POS = LOCAL.POSITION<1,2>
+    OTP.AGREE.POS = LOCAL.POSITION<1,3>
+
+    LOCAL.APPLICATION = 'FUNDS.TRANSFER'
+    LOCAL.FIELD = 'SRC.CHANNEL':VM:'FT.TXN.NARR'
+    LOCAL.POSITION = ''
+
+    CALL MULTI.GET.LOC.REF(LOCAL.APPLICATION,LOCAL.FIELD,LOCAL.POSITION)
+    Y.SRC.CHANNEL.POS = LOCAL.POSITION<1,1>
+    Y.FT.TXN.NARR.POS = LOCAL.POSITION<1,2>
+
+    RETURN
+*************************************************************************************
+PROGRAM.END:
+************
+    RETURN
+END
 
