@@ -1,1 +1,442 @@
 
+*-----------------------------------------------------------------------------
+* <Rating>648</Rating>
+*-----------------------------------------------------------------------------
+    SUBROUTINE CIB.SMS.FT
+*********************************** AUDIT INFORMATION ***********************
+* 1. Author&Date created  : NGDE20150716
+* 2. Site name            : CIB
+* 3. Product              :
+* 4. Routine type         : AUTH ROUTINE ON VERSION.CONTROL
+* 5. Installed            :
+* 6. E.V.B record         :
+*****************************************************************************
+
+********************************** PROGRAM DESCRIPTION **********************
+* 7. Description
+* -------------------
+*
+*
+* 8. Incoming arguments
+* -------------------------------
+*
+* 9. Outgoing arguments
+* -------------------------------
+*****************************************************************************
+* Include files
+    $INSERT I_COMMON
+    $INSERT I_EQUATE
+    $INSERT I_F.FUNDS.TRANSFER
+    $INSERT I_F.CUSTOMER
+    $INSERT I_F.ACCOUNT
+    $INSERT I_F.CIB.CUST.ADD.INFO
+    $INSERT I_F.CIB.SMS.FORMAT
+    $INSERT I_F.CIB.SMS.MOBILE
+    GOSUB OPEN.FILES
+    GOSUB GET.LOCAL.FIELDS
+    GOSUB PROCESS
+    GOTO PROGRAM.END
+
+*****************************************************************************
+PROCESS:
+*********
+
+    E.CHANNEL = ""
+    TXN.TYPE = R.NEW(FT.TRANSACTION.TYPE)
+    Y.SRC.CHANNEL =  R.NEW(FT.LOCAL.REF)<1,Y.SRC.CHANNEL.POS>
+    SMS.FORMAT.ID = "FT-":TXN.TYPE:"-":Y.SRC.CHANNEL
+* TAFJ Conversion_01042020 Start	
+*    IF TXN.TYPE[1,2] <> "OT" THEN
+    IF TXN.TYPE[1,2] NE "OT" THEN
+*        IF TXN.TYPE = "ACMP" THEN
+        IF TXN.TYPE EQ "ACMP" THEN
+* TAFJ Conversion_01042020 End		
+            SMS.FORMAT.ID = "FT-":TXN.TYPE:"-XML"
+        END
+        ELSE
+            SMS.FORMAT.ID = SMS.FORMAT.ID:"-XML"
+        END
+        FOLDER.NAME = "CIB.FORMAT.XML/OUTPUT/"
+        FOLDER.NAME = "/gpfs/t24r20Shared/INTERFACES/CIB.FORMAT.XML/OUTPUT/"
+        FOLDER.ID = ID.NEW
+        CALL CIB.XML.COMPOSE(SMS.FORMAT.ID,FOLDER.ID:"|":FOLDER.NAME)
+    END
+    ELSE
+*    Y.SRC.CHANNEL =  R.NEW(FT.LOCAL.REF)<1,Y.SRC.CHANNEL.POS>
+        SMS.FORMAT.ID =  "FT-":TXN.TYPE:"-":Y.SRC.CHANNEL:"-XML"
+        FOLDER.NAME = "CIB.FORMAT.XML/OUTPUT/"
+        FOLDER.NAME = "/gpfs/t24r20Shared/INTERFACES/CIB.FORMAT.XML/OUTPUT/"
+        FOLDER.ID = ID.NEW
+        CALL CIB.XML.COMPOSE(SMS.FORMAT.ID,FOLDER.ID:"|":FOLDER.NAME)
+    END
+    GOSUB CHECK.CUSTOMER
+* TAFJ Conversion_01042020 Start	
+*    IF CUSTOMER.SAME = "FALSE" THEN
+    IF CUSTOMER.SAME EQ "FALSE" THEN
+* TAFJ Conversion_01042020 End	
+*SMS.FORMAT.ID = "FT-":TXN.TYPE:"-DR"
+        SMS.FORMAT.ID = "FT-":TXN.TYPE:"-":Y.SRC.CHANNEL:"-DR"
+        GOSUB CHECK.EXIST
+* TAFJ Conversion_01042020 Start		
+*        IF READ.FLAG = "TRUE" THEN
+        IF READ.FLAG EQ "TRUE" THEN
+* TAFJ Conversion_01042020 End		
+            GOSUB CHECK.DEBIT.MSG
+        END
+        ELSE
+            SMS.FORMAT.ID = "FT-":TXN.TYPE:"-DR"
+            GOSUB CHECK.EXIST
+	* TAFJ Conversion_01042020 Start		
+*            IF READ.FLAG = "TRUE" THEN
+            IF READ.FLAG EQ "TRUE" THEN
+	* TAFJ Conversion_01042020 End		
+                GOSUB CHECK.DEBIT.MSG
+            END
+        END
+* TAFJ Conversion_01042020 Start
+*        IF TXN.TYPE[1,2] <> "OT" THEN
+        IF TXN.TYPE[1,2] NE "OT" THEN
+* TAFJ Conversion_01042020 End		
+            SMS.FORMAT.ID = "FT-":TXN.TYPE:"-":Y.SRC.CHANNEL:"-CR"
+            GOSUB CHECK.EXIST
+* TAFJ Conversion_01042020 Start			
+*            IF READ.FLAG = "TRUE" THEN
+            IF READ.FLAG EQ "TRUE" THEN
+* TAFJ Conversion_01042020 End			
+                GOSUB CHECK.CREDIT.MSG
+            END
+            ELSE
+                SMS.FORMAT.ID = "FT-":TXN.TYPE:"-CR"
+                GOSUB CHECK.EXIST
+* TAFJ Conversion_01042020 Start				
+*                IF READ.FLAG = "TRUE" THEN
+                IF READ.FLAG EQ "TRUE" THEN
+* TAFJ Conversion_01042020 End				
+                    GOSUB CHECK.CREDIT.MSG
+                END
+            END
+        END
+        ELSE
+***   CHECK.OT *******
+            Y.SRC.CHANNEL =  R.NEW(FT.LOCAL.REF)<1,Y.SRC.CHANNEL.POS>
+            SMS.FORMAT.ID = "FT-":TXN.TYPE:"-":Y.SRC.CHANNEL
+            GOSUB CHECK.EXIST
+* TAFJ Conversion_01042020 Start			
+*            IF READ.FLAG = "TRUE" THEN
+            IF READ.FLAG EQ "TRUE" THEN
+* TAFJ Conversion_01042020 End			
+                CUSTOMER.ID = ""
+                ACCT.ID = R.NEW(FT.DEBIT.ACCT.NO)
+                GOSUB GET.CUSTOMER.NO
+* TAFJ Conversion_01042020 Start				
+*                IF READ.FLAG = "TRUE" THEN
+                IF READ.FLAG EQ "TRUE" THEN
+*                    IF E.CHANNEL <> "YES" THEN
+                    IF E.CHANNEL NE "YES" THEN
+* TAFJ Conversion_01042020 End						
+                        GOSUB CHCK.E.CHANEL
+                    END
+* TAFJ Conversion_01042020 Start						
+ *                   IF E.CHANNEL = "YES" THEN
+                    IF E.CHANNEL EQ "YES" THEN
+* TAFJ Conversion_01042020 End					
+                        REP.ID = CUSTOMER.ID:"|":TXN.TYPE
+                        CALL CIB.SMS.COMPOSE(SMS.FORMAT.ID,REP.ID)
+                    END
+                END
+            END
+        END
+    END
+    RETURN
+*****************************************************************************
+CHECK.DEBIT.MSG:
+****************
+    CUSTOMER.ID = ""
+    ACCT.ID = R.NEW(FT.DEBIT.ACCT.NO)
+    GOSUB GET.CUSTOMER.NO
+* TAFJ Conversion_01042020 Start	
+*    IF READ.FLAG = "TRUE" THEN
+    IF READ.FLAG EQ "TRUE" THEN
+*        IF E.CHANNEL <> "YES" THEN
+        IF E.CHANNEL NE "YES" THEN
+* TAFJ Conversion_01042020 End		
+            GOSUB CHCK.E.CHANEL
+        END
+* TAFJ Conversion_01042020 Start		
+ *       IF E.CHANNEL = "YES" THEN
+        IF E.CHANNEL EQ "YES" THEN
+* TAFJ Conversion_01042020 End		
+            REP.ID= CUSTOMER.ID:"|":TXN.TYPE
+            CALL CIB.SMS.COMPOSE(SMS.FORMAT.ID,REP.ID)
+        END
+    END
+
+    RETURN
+*****************************************************************************
+CHECK.CREDIT.MSG:
+****************
+    CUSTOMER.ID = ""
+    ACCT.ID = R.NEW(FT.CREDIT.ACCT.NO)
+    GOSUB GET.CUSTOMER.NO
+* TAFJ Conversion_01042020 Start	
+*    IF READ.FLAG = "TRUE" THEN
+    IF READ.FLAG EQ "TRUE" THEN
+*        IF E.CHANNEL <> "YES" THEN
+        IF E.CHANNEL NE "YES" THEN
+* TAFJ Conversion_01042020 End		
+            GOSUB CHCK.E.CHANEL
+        END
+* TAFJ Conversion_01042020 Start		
+*        IF E.CHANNEL = "YES" THEN
+        IF E.CHANNEL EQ "YES" THEN
+* TAFJ Conversion_01042020 End		
+            REP.ID= CUSTOMER.ID:"|":TXN.TYPE
+            CALL CIB.SMS.COMPOSE(SMS.FORMAT.ID,REP.ID)
+        END
+    END
+
+    RETURN
+*****************************************************************************
+CHECK.SMS.ALERT:
+***************
+    READ.FLAG = "FALSE"
+    CALL F.READ (FN.CUSTOMER,CUSTOMER.ID , R.CUSTOMER, F.CUSTOMER, ERR1)
+    Y.SMS.ALERT = R.CUSTOMER<EB.CUS.LOCAL.REF,SMS.ALERT.POS>
+    Y.SMS.ALERT.COUNT = DCOUNT(Y.SMS.ALERT,SM)
+* TAFJ Conversion_01042020 Start	
+*    IF Y.SMS.ALERT.COUNT > 0 THEN
+    IF Y.SMS.ALERT.COUNT GT 0 THEN
+* TAFJ Conversion_01042020 End	
+        FOR X.COUNT = 1 TO Y.SMS.ALERT.COUNT
+            Y.SMS.ALERT.VALUE = FIELD(Y.SMS.ALERT,SM,X.COUNT)
+* TAFJ Conversion_01042020 Start			
+*            IF Y.SMS.ALERT.VALUE = Y.SERVICE.DESC THEN
+            IF Y.SMS.ALERT.VALUE EQ Y.SERVICE.DESC THEN
+* TAFJ Conversion_01042020 End			
+                READ.FLAG = "TRUE"
+                X.COUNT = Y.SMS.ALERT.COUNT + 3
+            END
+            ELSE
+* TAFJ Conversion_01042020 Start			
+*                IF Y.SERVICE.DESC = "GET.MOBILE.APP" THEN
+                IF Y.SERVICE.DESC EQ "GET.MOBILE.APP" THEN
+* TAFJ Conversion_01042020 End				
+                    GOSUB GET.MOBILE.APP
+                END
+            END
+        NEXT X.COUNT
+    END
+    ELSE
+* TAFJ Conversion_01042020 Start	
+*        IF Y.SERVICE.DESC = "GET.MOBILE.APP" THEN
+        IF Y.SERVICE.DESC EQ "GET.MOBILE.APP" THEN
+* TAFJ Conversion_01042020 End		
+            GOSUB GET.MOBILE.APP
+        END
+    END
+    RETURN
+*****************************************************************************
+GET.MOBILE.APP:
+***************
+    R.CIB.SMS.MOBILE = ""
+    Y.NEW.VALUE = ACCT.ID
+    CALL F.READ(FN.CIB.SMS.MOBILE,Y.NEW.VALUE:".":SMS.FORMAT.ID ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+    IF R.CIB.SMS.MOBILE THEN
+
+    END
+    ELSE
+        TXN.TYPE = FIELD(SMS.FORMAT.ID,"-",2)
+        CALL F.READ(FN.CIB.SMS.MOBILE,Y.NEW.VALUE:".":TXN.TYPE ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+        IF R.CIB.SMS.MOBILE THEN
+
+        END
+        ELSE
+            CALL F.READ(FN.CIB.SMS.MOBILE,CUSTOMER.ID:".":SMS.FORMAT.ID ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+            IF R.CIB.SMS.MOBILE THEN
+
+            END
+            ELSE
+                TXN.TYPE = FIELD(SMS.FORMAT.ID,"-",2)
+                CALL F.READ(FN.CIB.SMS.MOBILE,CUSTOMER.ID:".":TXN.TYPE ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+                IF R.CIB.SMS.MOBILE THEN
+
+                END
+                ELSE
+                    R.CIB.SMS.MOBILE = ""
+                END
+            END
+        END
+    END
+    IF R.CIB.SMS.MOBILE THEN
+        READ.FLAG = "TRUE"
+        E.CHANNEL = "YES"
+    END
+
+    RETURN
+*****************************************************************************
+CHCK.E.CHANEL:
+**************
+    E.CHANNEL = "NO"
+* CALL F.READ(FN.CIB.CUST.ADD.INFO, CUSTOMER.ID ,R.CIB.CUST.ADD.INFO ,F.CIB.CUST.ADD.INFO,ERR1)
+*IF R.CIB.CUST.ADD.INFO THEN
+*    E.CHANNEL = R.CIB.CUST.ADD.INFO<ADD.INF.E.SERV.AGREE>
+* END
+    CALL F.READ (FN.CUSTOMER,CUSTOMER.ID , R.CUSTOMER, F.CUSTOMER, ERR1)
+    IF R.CUSTOMER THEN
+        E.CHANNEL = R.CUSTOMER<EB.CUS.LOCAL.REF,E.SERV.AGREE.POS>
+        E.OTP =  R.CUSTOMER<EB.CUS.LOCAL.REF,OTP.AGREE.POS>
+* TAFJ Conversion_01042020 Start		
+*        IF E.CHANNEL = "Y" THEN
+        IF E.CHANNEL EQ "Y" THEN
+* TAFJ Conversion_01042020 End		
+            E.CHANNEL = "YES"
+        END
+* TAFJ Conversion_01042020 Start		
+*        IF E.OTP = "Y" THEN
+        IF E.OTP EQ "Y" THEN
+* TAFJ Conversion_01042020 End		
+            E.CHANNEL = "YES"
+        END
+    END
+* E.CHANNEL = "YES"
+    RETURN
+*****************************************************************************
+CHECK.EXIST:
+************
+    CALL F.READ(FN.CIB.SMS.FORMAT, SMS.FORMAT.ID ,R.CIB.SMS.FORMAT,F.CIB.SMS.FROMAT,ERR1)
+    IF R.CIB.SMS.FORMAT THEN
+        Y.SERVICE.DESC = R.CIB.SMS.FORMAT<CIBSF.SERVICE.DESC>
+        READ.FLAG = "TRUE"
+    END
+    ELSE
+        READ.FLAG = "FALSE"
+    END
+    RETURN
+*****************************************************************************
+GET.CUSTOMER.NO:
+***************
+    CALL F.READ(FN.ACCOUNT, ACCT.ID , R.ACCOUNT, F.ACCOUNT, ERR1)
+	* TAFJ Conversion_01042020 Start
+*    IF R.ACCOUNT<AC.JOINT.HOLDER> <> "" THEN
+    IF R.ACCOUNT<AC.JOINT.HOLDER> NE "" THEN
+*        IF R.ACCOUNT<AC.RELATION.CODE> = '99' THEN
+        IF R.ACCOUNT<AC.RELATION.CODE> EQ '99' THEN
+* TAFJ Conversion_01042020 End			
+            CUSTOMER.ID = R.ACCOUNT<AC.JOINT.HOLDER>
+        END
+        ELSE
+            CUSTOMER.ID = R.ACCOUNT<AC.CUSTOMER>
+        END
+    END
+    ELSE
+        CUSTOMER.ID = R.ACCOUNT<AC.CUSTOMER>
+    END
+
+    GOSUB CHECK.SMS.ALERT
+    RETURN
+*****************************************************************************
+CHECK.CUSTOMER:
+************
+
+    DEBIT.ACC = R.NEW(FT.DEBIT.ACCT.NO)
+    CREDIT.ACC = R.NEW(FT.CREDIT.ACCT.NO)
+    CALL F.READ (FN.ACCOUNT, CREDIT.ACC , R.ACCOUNT, F.ACCOUNT, ERR1)
+    CALL F.READ (FN.ACCOUNT, DEBIT.ACC, R.ACCOUNT.NEW, F.ACCOUNT, ERR1)
+    CUSTOMER.SAME = "TRUE"
+    IF R.ACCOUNT<AC.CUSTOMER> NE R.ACCOUNT.NEW<AC.CUSTOMER> THEN
+* TAFJ Conversion_01042020 Start	
+*        IF R.ACCOUNT<AC.JOINT.HOLDER> = R.ACCOUNT.NEW<AC.CUSTOMER> THEN
+        IF R.ACCOUNT<AC.JOINT.HOLDER> EQ R.ACCOUNT.NEW<AC.CUSTOMER> THEN		
+*            IF R.ACCOUNT<AC.RELATION.CODE> = '99' THEN
+            IF R.ACCOUNT<AC.RELATION.CODE> EQ '99' THEN
+* TAFJ Conversion_01042020 End			
+            END
+            ELSE
+                CUSTOMER.SAME = "FALSE"
+            END
+        END
+        ELSE
+* TAFJ Conversion_01042020 Start		
+*            IF R.ACCOUNT.NEW<AC.JOINT.HOLDER> = R.ACCOUNT<AC.CUSTOMER> THEN
+            IF R.ACCOUNT.NEW<AC.JOINT.HOLDER> EQ R.ACCOUNT<AC.CUSTOMER> THEN
+*                IF R.ACCOUNT.NEW<AC.RELATION.CODE> = '99' THEN
+                IF R.ACCOUNT.NEW<AC.RELATION.CODE> EQ '99' THEN
+* TAFJ Conversion_01042020 End				
+                END
+                ELSE
+                    CUSTOMER.SAME = "FALSE"
+                END
+            END
+            ELSE
+                CUSTOMER.SAME = "FALSE"
+            END
+        END
+    END
+
+    Y.FT.TXN.NARR = R.NEW(FT.LOCAL.REF)<1,Y.FT.TXN.NARR.POS>
+* TAFJ Conversion_01042020 Start	
+*    IF TRIM(Y.FT.TXN.NARR) = "IB. Settlement of My Credit Card" THEN
+    IF TRIM(Y.FT.TXN.NARR) EQ "IB. Settlement of My Credit Card" THEN
+* TAFJ Conversion_01042020 End	
+        CUSTOMER.SAME = "TRUE"
+    END
+
+
+    RETURN
+*****************************************************************************
+OPEN.FILES:
+***********
+
+*/////////////////// CIB.SMS.MOBILE //////////////////////////////////
+    FN.CIB.SMS.MOBILE =  'F.CIB.SMS.MOBILE'
+    F.CIB.SMS.MOBILE = ''
+    CALL OPF(FN.CIB.SMS.MOBILE ,F.CIB.SMS.MOBILE)
+
+*/////////////////// CIB.SMS.FROMAT //////////////////////////////////
+    FN.CIB.SMS.FORMAT =  'F.CIB.SMS.FORMAT'
+    F.CIB.SMS.FORMAT = ''
+    CALL OPF(FN.CIB.SMS.FORMAT ,F.CIB.SMS.FORMAT)
+
+
+*/////////////////// CIB.CUST.ADD.INFO //////////////////////////////////
+    FN.CIB.CUST.ADD.INFO =  'F.CIB.CUST.ADD.INFO'
+    F.CIB.CUST.ADD.INFO = ''
+    CALL OPF(FN.CIB.CUST.ADD.INFO ,F.CIB.CUST.ADD.INFO)
+
+*/////////////////// ACCOUNT //////////////////////////////////
+    FN.ACCOUNT = 'F.ACCOUNT'
+    F.ACCOUNT = ''
+    CALL OPF(FN.ACCOUNT ,F.ACCOUNT)
+
+*/////////////////// CUSTOMER //////////////////////////////////
+    FN.CUSTOMER = 'F.CUSTOMER'
+    F.CUSTOMER  = ''
+    CALL OPF(FN.CUSTOMER,F.CUSTOMER)
+
+    RETURN
+*****************************************************************************
+GET.LOCAL.FIELDS:
+*****************
+    LOCAL.APPLICATION = 'CUSTOMER'
+    LOCAL.FIELD = 'SMS.ALERT':VM:'E.SERV.AGREE':VM:'OTP.AGREE'
+    LOCAL.POSITION = ''
+
+    CALL MULTI.GET.LOC.REF(LOCAL.APPLICATION,LOCAL.FIELD,LOCAL.POSITION)
+
+    SMS.ALERT.POS = LOCAL.POSITION<1,1>
+    E.SERV.AGREE.POS = LOCAL.POSITION<1,2>
+    OTP.AGREE.POS = LOCAL.POSITION<1,3>
+
+    LOCAL.APPLICATION = 'FUNDS.TRANSFER'
+    LOCAL.FIELD = 'SRC.CHANNEL':VM:'FT.TXN.NARR'
+    LOCAL.POSITION = ''
+
+    CALL MULTI.GET.LOC.REF(LOCAL.APPLICATION,LOCAL.FIELD,LOCAL.POSITION)
+    Y.SRC.CHANNEL.POS = LOCAL.POSITION<1,1>
+    Y.FT.TXN.NARR.POS = LOCAL.POSITION<1,2>
+    RETURN
+*************************************************************************************
+PROGRAM.END:
+*************
+    RETURN
+END
