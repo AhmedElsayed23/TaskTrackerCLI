@@ -1,13 +1,12 @@
-
 *-----------------------------------------------------------------------------
-* <Rating>648</Rating>
+* <Rating>2159</Rating>
 *-----------------------------------------------------------------------------
-    SUBROUTINE CIB.SMS.FT
+    SUBROUTINE CIB.SMS.COMPOSE.RUN(SMS.FORMAT.ID,REP.ID,MAIN.APP)
 *********************************** AUDIT INFORMATION ***********************
-* 1. Author&Date created  : NGDE20150716
+* 1. Author&Date created  : NGDE2015
 * 2. Site name            : CIB
 * 3. Product              :
-* 4. Routine type         : AUTH ROUTINE ON VERSION.CONTROL
+* 4. Routine type         : SERVICE RUN
 * 5. Installed            :
 * 6. E.V.B record         :
 *****************************************************************************
@@ -22,370 +21,57 @@
 *
 * 9. Outgoing arguments
 * -------------------------------
+* Modification history:
+* 25-06-2018       Rajasekhar     R18 Upgrade retrofit reference
+*                                 MCBCS - 20190625
+* 27-01-2019       ENGY DESSOUKI         R18 MULTI APPLICATION
+*                                              CIB-20190127
 *****************************************************************************
 * Include files
+* MCBCS - 20180625- S
     $INSERT I_COMMON
     $INSERT I_EQUATE
-    $INSERT I_F.FUNDS.TRANSFER
-    $INSERT I_F.CUSTOMER
     $INSERT I_F.ACCOUNT
-    $INSERT I_F.CIB.CUST.ADD.INFO
-    $INSERT I_F.CIB.SMS.FORMAT
+    $INSERT I_F.CUSTOMER
+    $INSERT I_F.CURRENCY
+    $INSERT I_F.COMPANY
+    $INSERT I_F.FUNDS.TRANSFER
     $INSERT I_F.CIB.SMS.MOBILE
+    $INSERT I_F.CIB.SMS.FORMAT
+    $INSERT I_F.CIB.SMS.REPORT
+    $INSERT I_F.CIB.SMS.REP.CONCAT
+    $INSERT I_F.CURRENCY
+    $INSERT I_F.STANDARD.SELECTION
+    $INSERT I_F.AC.CHARGE.REQUEST
+    $INSERT I_F.FT.CHARGE.TYPE
+* MCBCS - 20180625- E
+*****************************************************************************
+    FLAG.FIRST = "TRUE"
     GOSUB OPEN.FILES
-    GOSUB GET.LOCAL.FIELDS
+    GOSUB CREATE.TEXT.FILE
     GOSUB PROCESS
     GOTO PROGRAM.END
-
-*****************************************************************************
-PROCESS:
-*********
-
-    E.CHANNEL = ""
-    TXN.TYPE = R.NEW(FT.TRANSACTION.TYPE)
-    Y.SRC.CHANNEL =  R.NEW(FT.LOCAL.REF)<1,Y.SRC.CHANNEL.POS>
-    SMS.FORMAT.ID = "FT-":TXN.TYPE:"-":Y.SRC.CHANNEL
-* TAFJ Conversion_01042020 Start	
-*    IF TXN.TYPE[1,2] <> "OT" THEN
-    IF TXN.TYPE[1,2] NE "OT" THEN
-*        IF TXN.TYPE = "ACMP" THEN
-        IF TXN.TYPE EQ "ACMP" THEN
-* TAFJ Conversion_01042020 End		
-            SMS.FORMAT.ID = "FT-":TXN.TYPE:"-XML"
-        END
-        ELSE
-            SMS.FORMAT.ID = SMS.FORMAT.ID:"-XML"
-        END
-        FOLDER.NAME = "CIB.FORMAT.XML/OUTPUT/"
-        FOLDER.NAME = "/gpfs/t24r20Shared/INTERFACES/CIB.FORMAT.XML/OUTPUT/"
-        FOLDER.ID = ID.NEW
-        CALL CIB.XML.COMPOSE(SMS.FORMAT.ID,FOLDER.ID:"|":FOLDER.NAME)
-    END
-    ELSE
-*    Y.SRC.CHANNEL =  R.NEW(FT.LOCAL.REF)<1,Y.SRC.CHANNEL.POS>
-        SMS.FORMAT.ID =  "FT-":TXN.TYPE:"-":Y.SRC.CHANNEL:"-XML"
-        FOLDER.NAME = "CIB.FORMAT.XML/OUTPUT/"
-        FOLDER.NAME = "/gpfs/t24r20Shared/INTERFACES/CIB.FORMAT.XML/OUTPUT/"
-        FOLDER.ID = ID.NEW
-        CALL CIB.XML.COMPOSE(SMS.FORMAT.ID,FOLDER.ID:"|":FOLDER.NAME)
-    END
-    GOSUB CHECK.CUSTOMER
-* TAFJ Conversion_01042020 Start	
-*    IF CUSTOMER.SAME = "FALSE" THEN
-    IF CUSTOMER.SAME EQ "FALSE" THEN
-* TAFJ Conversion_01042020 End	
-*SMS.FORMAT.ID = "FT-":TXN.TYPE:"-DR"
-        SMS.FORMAT.ID = "FT-":TXN.TYPE:"-":Y.SRC.CHANNEL:"-DR"
-        GOSUB CHECK.EXIST
-* TAFJ Conversion_01042020 Start		
-*        IF READ.FLAG = "TRUE" THEN
-        IF READ.FLAG EQ "TRUE" THEN
-* TAFJ Conversion_01042020 End		
-            GOSUB CHECK.DEBIT.MSG
-        END
-        ELSE
-            SMS.FORMAT.ID = "FT-":TXN.TYPE:"-DR"
-            GOSUB CHECK.EXIST
-	* TAFJ Conversion_01042020 Start		
-*            IF READ.FLAG = "TRUE" THEN
-            IF READ.FLAG EQ "TRUE" THEN
-	* TAFJ Conversion_01042020 End		
-                GOSUB CHECK.DEBIT.MSG
-            END
-        END
-* TAFJ Conversion_01042020 Start
-*        IF TXN.TYPE[1,2] <> "OT" THEN
-        IF TXN.TYPE[1,2] NE "OT" THEN
-* TAFJ Conversion_01042020 End		
-            SMS.FORMAT.ID = "FT-":TXN.TYPE:"-":Y.SRC.CHANNEL:"-CR"
-            GOSUB CHECK.EXIST
-* TAFJ Conversion_01042020 Start			
-*            IF READ.FLAG = "TRUE" THEN
-            IF READ.FLAG EQ "TRUE" THEN
-* TAFJ Conversion_01042020 End			
-                GOSUB CHECK.CREDIT.MSG
-            END
-            ELSE
-                SMS.FORMAT.ID = "FT-":TXN.TYPE:"-CR"
-                GOSUB CHECK.EXIST
-* TAFJ Conversion_01042020 Start				
-*                IF READ.FLAG = "TRUE" THEN
-                IF READ.FLAG EQ "TRUE" THEN
-* TAFJ Conversion_01042020 End				
-                    GOSUB CHECK.CREDIT.MSG
-                END
-            END
-        END
-        ELSE
-***   CHECK.OT *******
-            Y.SRC.CHANNEL =  R.NEW(FT.LOCAL.REF)<1,Y.SRC.CHANNEL.POS>
-            SMS.FORMAT.ID = "FT-":TXN.TYPE:"-":Y.SRC.CHANNEL
-            GOSUB CHECK.EXIST
-* TAFJ Conversion_01042020 Start			
-*            IF READ.FLAG = "TRUE" THEN
-            IF READ.FLAG EQ "TRUE" THEN
-* TAFJ Conversion_01042020 End			
-                CUSTOMER.ID = ""
-                ACCT.ID = R.NEW(FT.DEBIT.ACCT.NO)
-                GOSUB GET.CUSTOMER.NO
-* TAFJ Conversion_01042020 Start				
-*                IF READ.FLAG = "TRUE" THEN
-                IF READ.FLAG EQ "TRUE" THEN
-*                    IF E.CHANNEL <> "YES" THEN
-                    IF E.CHANNEL NE "YES" THEN
-* TAFJ Conversion_01042020 End						
-                        GOSUB CHCK.E.CHANEL
-                    END
-* TAFJ Conversion_01042020 Start						
- *                   IF E.CHANNEL = "YES" THEN
-                    IF E.CHANNEL EQ "YES" THEN
-* TAFJ Conversion_01042020 End					
-                        REP.ID = CUSTOMER.ID:"|":TXN.TYPE
-                        CALL CIB.SMS.COMPOSE(SMS.FORMAT.ID,REP.ID)
-                    END
-                END
-            END
-        END
-    END
-    RETURN
-*****************************************************************************
-CHECK.DEBIT.MSG:
-****************
-    CUSTOMER.ID = ""
-    ACCT.ID = R.NEW(FT.DEBIT.ACCT.NO)
-    GOSUB GET.CUSTOMER.NO
-* TAFJ Conversion_01042020 Start	
-*    IF READ.FLAG = "TRUE" THEN
-    IF READ.FLAG EQ "TRUE" THEN
-*        IF E.CHANNEL <> "YES" THEN
-        IF E.CHANNEL NE "YES" THEN
-* TAFJ Conversion_01042020 End		
-            GOSUB CHCK.E.CHANEL
-        END
-* TAFJ Conversion_01042020 Start		
- *       IF E.CHANNEL = "YES" THEN
-        IF E.CHANNEL EQ "YES" THEN
-* TAFJ Conversion_01042020 End		
-            REP.ID= CUSTOMER.ID:"|":TXN.TYPE
-            CALL CIB.SMS.COMPOSE(SMS.FORMAT.ID,REP.ID)
-        END
-    END
-
-    RETURN
-*****************************************************************************
-CHECK.CREDIT.MSG:
-****************
-    CUSTOMER.ID = ""
-    ACCT.ID = R.NEW(FT.CREDIT.ACCT.NO)
-    GOSUB GET.CUSTOMER.NO
-* TAFJ Conversion_01042020 Start	
-*    IF READ.FLAG = "TRUE" THEN
-    IF READ.FLAG EQ "TRUE" THEN
-*        IF E.CHANNEL <> "YES" THEN
-        IF E.CHANNEL NE "YES" THEN
-* TAFJ Conversion_01042020 End		
-            GOSUB CHCK.E.CHANEL
-        END
-* TAFJ Conversion_01042020 Start		
-*        IF E.CHANNEL = "YES" THEN
-        IF E.CHANNEL EQ "YES" THEN
-* TAFJ Conversion_01042020 End		
-            REP.ID= CUSTOMER.ID:"|":TXN.TYPE
-            CALL CIB.SMS.COMPOSE(SMS.FORMAT.ID,REP.ID)
-        END
-    END
-
-    RETURN
-*****************************************************************************
-CHECK.SMS.ALERT:
-***************
-    READ.FLAG = "FALSE"
-    CALL F.READ (FN.CUSTOMER,CUSTOMER.ID , R.CUSTOMER, F.CUSTOMER, ERR1)
-    Y.SMS.ALERT = R.CUSTOMER<EB.CUS.LOCAL.REF,SMS.ALERT.POS>
-    Y.SMS.ALERT.COUNT = DCOUNT(Y.SMS.ALERT,SM)
-* TAFJ Conversion_01042020 Start	
-*    IF Y.SMS.ALERT.COUNT > 0 THEN
-    IF Y.SMS.ALERT.COUNT GT 0 THEN
-* TAFJ Conversion_01042020 End	
-        FOR X.COUNT = 1 TO Y.SMS.ALERT.COUNT
-            Y.SMS.ALERT.VALUE = FIELD(Y.SMS.ALERT,SM,X.COUNT)
-* TAFJ Conversion_01042020 Start			
-*            IF Y.SMS.ALERT.VALUE = Y.SERVICE.DESC THEN
-            IF Y.SMS.ALERT.VALUE EQ Y.SERVICE.DESC THEN
-* TAFJ Conversion_01042020 End			
-                READ.FLAG = "TRUE"
-                X.COUNT = Y.SMS.ALERT.COUNT + 3
-            END
-            ELSE
-* TAFJ Conversion_01042020 Start			
-*                IF Y.SERVICE.DESC = "GET.MOBILE.APP" THEN
-                IF Y.SERVICE.DESC EQ "GET.MOBILE.APP" THEN
-* TAFJ Conversion_01042020 End				
-                    GOSUB GET.MOBILE.APP
-                END
-            END
-        NEXT X.COUNT
-    END
-    ELSE
-* TAFJ Conversion_01042020 Start	
-*        IF Y.SERVICE.DESC = "GET.MOBILE.APP" THEN
-        IF Y.SERVICE.DESC EQ "GET.MOBILE.APP" THEN
-* TAFJ Conversion_01042020 End		
-            GOSUB GET.MOBILE.APP
-        END
-    END
-    RETURN
-*****************************************************************************
-GET.MOBILE.APP:
-***************
-    R.CIB.SMS.MOBILE = ""
-    Y.NEW.VALUE = ACCT.ID
-    CALL F.READ(FN.CIB.SMS.MOBILE,Y.NEW.VALUE:".":SMS.FORMAT.ID ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
-    IF R.CIB.SMS.MOBILE THEN
-
-    END
-    ELSE
-        TXN.TYPE = FIELD(SMS.FORMAT.ID,"-",2)
-        CALL F.READ(FN.CIB.SMS.MOBILE,Y.NEW.VALUE:".":TXN.TYPE ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
-        IF R.CIB.SMS.MOBILE THEN
-
-        END
-        ELSE
-            CALL F.READ(FN.CIB.SMS.MOBILE,CUSTOMER.ID:".":SMS.FORMAT.ID ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
-            IF R.CIB.SMS.MOBILE THEN
-
-            END
-            ELSE
-                TXN.TYPE = FIELD(SMS.FORMAT.ID,"-",2)
-                CALL F.READ(FN.CIB.SMS.MOBILE,CUSTOMER.ID:".":TXN.TYPE ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
-                IF R.CIB.SMS.MOBILE THEN
-
-                END
-                ELSE
-                    R.CIB.SMS.MOBILE = ""
-                END
-            END
-        END
-    END
-    IF R.CIB.SMS.MOBILE THEN
-        READ.FLAG = "TRUE"
-        E.CHANNEL = "YES"
-    END
-
-    RETURN
-*****************************************************************************
-CHCK.E.CHANEL:
-**************
-    E.CHANNEL = "NO"
-* CALL F.READ(FN.CIB.CUST.ADD.INFO, CUSTOMER.ID ,R.CIB.CUST.ADD.INFO ,F.CIB.CUST.ADD.INFO,ERR1)
-*IF R.CIB.CUST.ADD.INFO THEN
-*    E.CHANNEL = R.CIB.CUST.ADD.INFO<ADD.INF.E.SERV.AGREE>
-* END
-    CALL F.READ (FN.CUSTOMER,CUSTOMER.ID , R.CUSTOMER, F.CUSTOMER, ERR1)
-    IF R.CUSTOMER THEN
-        E.CHANNEL = R.CUSTOMER<EB.CUS.LOCAL.REF,E.SERV.AGREE.POS>
-        E.OTP =  R.CUSTOMER<EB.CUS.LOCAL.REF,OTP.AGREE.POS>
-* TAFJ Conversion_01042020 Start		
-*        IF E.CHANNEL = "Y" THEN
-        IF E.CHANNEL EQ "Y" THEN
-* TAFJ Conversion_01042020 End		
-            E.CHANNEL = "YES"
-        END
-* TAFJ Conversion_01042020 Start		
-*        IF E.OTP = "Y" THEN
-        IF E.OTP EQ "Y" THEN
-* TAFJ Conversion_01042020 End		
-            E.CHANNEL = "YES"
-        END
-    END
-* E.CHANNEL = "YES"
-    RETURN
-*****************************************************************************
-CHECK.EXIST:
-************
-    CALL F.READ(FN.CIB.SMS.FORMAT, SMS.FORMAT.ID ,R.CIB.SMS.FORMAT,F.CIB.SMS.FROMAT,ERR1)
-    IF R.CIB.SMS.FORMAT THEN
-        Y.SERVICE.DESC = R.CIB.SMS.FORMAT<CIBSF.SERVICE.DESC>
-        READ.FLAG = "TRUE"
-    END
-    ELSE
-        READ.FLAG = "FALSE"
-    END
-    RETURN
-*****************************************************************************
-GET.CUSTOMER.NO:
-***************
-    CALL F.READ(FN.ACCOUNT, ACCT.ID , R.ACCOUNT, F.ACCOUNT, ERR1)
-	* TAFJ Conversion_01042020 Start
-*    IF R.ACCOUNT<AC.JOINT.HOLDER> <> "" THEN
-    IF R.ACCOUNT<AC.JOINT.HOLDER> NE "" THEN
-*        IF R.ACCOUNT<AC.RELATION.CODE> = '99' THEN
-        IF R.ACCOUNT<AC.RELATION.CODE> EQ '99' THEN
-* TAFJ Conversion_01042020 End			
-            CUSTOMER.ID = R.ACCOUNT<AC.JOINT.HOLDER>
-        END
-        ELSE
-            CUSTOMER.ID = R.ACCOUNT<AC.CUSTOMER>
-        END
-    END
-    ELSE
-        CUSTOMER.ID = R.ACCOUNT<AC.CUSTOMER>
-    END
-
-    GOSUB CHECK.SMS.ALERT
-    RETURN
-*****************************************************************************
-CHECK.CUSTOMER:
-************
-
-    DEBIT.ACC = R.NEW(FT.DEBIT.ACCT.NO)
-    CREDIT.ACC = R.NEW(FT.CREDIT.ACCT.NO)
-    CALL F.READ (FN.ACCOUNT, CREDIT.ACC , R.ACCOUNT, F.ACCOUNT, ERR1)
-    CALL F.READ (FN.ACCOUNT, DEBIT.ACC, R.ACCOUNT.NEW, F.ACCOUNT, ERR1)
-    CUSTOMER.SAME = "TRUE"
-    IF R.ACCOUNT<AC.CUSTOMER> NE R.ACCOUNT.NEW<AC.CUSTOMER> THEN
-* TAFJ Conversion_01042020 Start	
-*        IF R.ACCOUNT<AC.JOINT.HOLDER> = R.ACCOUNT.NEW<AC.CUSTOMER> THEN
-        IF R.ACCOUNT<AC.JOINT.HOLDER> EQ R.ACCOUNT.NEW<AC.CUSTOMER> THEN		
-*            IF R.ACCOUNT<AC.RELATION.CODE> = '99' THEN
-            IF R.ACCOUNT<AC.RELATION.CODE> EQ '99' THEN
-* TAFJ Conversion_01042020 End			
-            END
-            ELSE
-                CUSTOMER.SAME = "FALSE"
-            END
-        END
-        ELSE
-* TAFJ Conversion_01042020 Start		
-*            IF R.ACCOUNT.NEW<AC.JOINT.HOLDER> = R.ACCOUNT<AC.CUSTOMER> THEN
-            IF R.ACCOUNT.NEW<AC.JOINT.HOLDER> EQ R.ACCOUNT<AC.CUSTOMER> THEN
-*                IF R.ACCOUNT.NEW<AC.RELATION.CODE> = '99' THEN
-                IF R.ACCOUNT.NEW<AC.RELATION.CODE> EQ '99' THEN
-* TAFJ Conversion_01042020 End				
-                END
-                ELSE
-                    CUSTOMER.SAME = "FALSE"
-                END
-            END
-            ELSE
-                CUSTOMER.SAME = "FALSE"
-            END
-        END
-    END
-
-    Y.FT.TXN.NARR = R.NEW(FT.LOCAL.REF)<1,Y.FT.TXN.NARR.POS>
-* TAFJ Conversion_01042020 Start	
-*    IF TRIM(Y.FT.TXN.NARR) = "IB. Settlement of My Credit Card" THEN
-    IF TRIM(Y.FT.TXN.NARR) EQ "IB. Settlement of My Credit Card" THEN
-* TAFJ Conversion_01042020 End	
-        CUSTOMER.SAME = "TRUE"
-    END
-
-
     RETURN
 *****************************************************************************
 OPEN.FILES:
 ***********
+    CUSTOMER.ID = FIELD(REP.ID,"|",1)
+*/////////////////// CUSTOMER //////////////////////////////////
+    FN.CUSTOMER = 'F.CUSTOMER'
+    F.CUSTOMER = ''
+    CALL OPF(FN.CUSTOMER,F.CUSTOMER)
+*/////////////////// CUSTOMER //////////////////////////////////
+    FN.SS = 'F.STANDARD.SELECTION'
+    F.SS = ''
+    CALL OPF(FN.SS,F.SS)
+*/////////////////// SMS.REPORT //////////////////////////////////
+    FN.CIB.SMS.REPORT = 'F.CIB.SMS.REPORT'
+    F.CIB.SMS.REPORT = ''
+    CALL OPF(FN.CIB.SMS.REPORT,F.CIB.SMS.REPORT)
+*/////////////////// SMS.CONCAT//////////////////////////////////
+    FN.CIB.SMS.REP.CONCAT = 'F.CIB.SMS.REP.CONCAT'
+    F.CIB.SMS.REP.CONCAT = ''
+    CALL OPF(FN.CIB.SMS.REP.CONCAT,F.CIB.SMS.REP.CONCAT)
 
 */////////////////// CIB.SMS.MOBILE //////////////////////////////////
     FN.CIB.SMS.MOBILE =  'F.CIB.SMS.MOBILE'
@@ -397,46 +83,933 @@ OPEN.FILES:
     F.CIB.SMS.FORMAT = ''
     CALL OPF(FN.CIB.SMS.FORMAT ,F.CIB.SMS.FORMAT)
 
+*/////////////////// CURRENCY //////////////////////////////////
+    FN.CURRENCY = 'F.CURRENCY'
+    F.CURRENCY = ''
+    CALL OPF(FN.CURRENCY,F.CURRENCY)
 
-*/////////////////// CIB.CUST.ADD.INFO //////////////////////////////////
-    FN.CIB.CUST.ADD.INFO =  'F.CIB.CUST.ADD.INFO'
-    F.CIB.CUST.ADD.INFO = ''
-    CALL OPF(FN.CIB.CUST.ADD.INFO ,F.CIB.CUST.ADD.INFO)
+*/////////////////// FT.CHARGE.TYPE //////////////////////////////////
+    FN.FT.CHARGE.TYPE = 'F.FT.CHARGE.TYPE'
+    F.FT.CHARGE.TYPE = ''
+    CALL OPF(FN.FT.CHARGE.TYPE ,F.FT.CHARGE.TYPE)
 
-*/////////////////// ACCOUNT //////////////////////////////////
-    FN.ACCOUNT = 'F.ACCOUNT'
-    F.ACCOUNT = ''
-    CALL OPF(FN.ACCOUNT ,F.ACCOUNT)
+*/////////////////// AC.CHARGE.REQUEST //////////////////////////////////
+    FN.AC.CHARGE.REQUEST = 'F.AC.CHARGE.REQUEST'
+    F.AC.CHARGE.REQUEST = ''
+    CALL OPF(FN.AC.CHARGE.REQUEST,F.AC.CHARGE.REQUEST)
 
-*/////////////////// CUSTOMER //////////////////////////////////
-    FN.CUSTOMER = 'F.CUSTOMER'
-    F.CUSTOMER  = ''
-    CALL OPF(FN.CUSTOMER,F.CUSTOMER)
+    RETURN
+******************************************************************************
+READ.OPEN.FILE:
+***************
+*/////////////////// APP NAME //////////////////////////////////
+    FN.APP.NAME = FILE.EXT:APP.NAME
+    F.APP.NAME = ''
+    CALL OPF(FN.APP.NAME,F.APP.NAME)
+
+    RETURN
+******************************************************************************
+READ.LOCAL.FIELD.VALUE:
+***********************
+    LCL.APP.NAME = ""
+    LOCAL.APPLICATION = LCL.APP.NAME
+    LOCAL.FIELD = LOCAL.FIELD.NAME
+    LOCAL.POSITION = ''
+
+    CALL MULTI.GET.LOC.REF(LOCAL.APPLICATION,LOCAL.FIELD,LOCAL.POSITION)
+
+    LOCAL.FIELD.NAME.POS = LOCAL.POSITION<1,1>
+
+    RETURN
+******************************************************************************
+PROCESS:
+*********
+    MY.SEP = "|"
+    CALL F.READ(FN.CIB.SMS.FORMAT, SMS.FORMAT.ID ,R.CIB.SMS.FORMAT,F.CIB.SMS.FROMAT,ERR1)
+    IF R.CIB.SMS.FORMAT THEN
+        GOSUB CHECK.CONDITION
+* MCBCS - 20180625- E
+*        IF CON.PASSED = "TRUE" THEN
+        IF CON.PASSED EQ "TRUE" THEN
+            GOSUB READ.FILE.SAMPLE
+        END
+        ELSE
+            NEW.LINE = SMS.FORMAT.ID:MY.SEP:'CONDTION DIDNT PASSED ':MY.SEP:ID.NEW:MY.SEP:'ERROR'
+            GOSUB WRITE.NEW.LINE
+        END
+*   GOSUB READ.CIB.SMS.FORMAT
+*     NEW.LINE =
+*     GOSUB WRITE.NEW.LINE
+    END
+    ELSE
+        NEW.LINE = SMS.FORMAT.ID:MY.SEP:'Doesnt Exist in CIB.SMS.FORMAT':MY.SEP:ID.NEW:MY.SEP:'ERROR'
+        GOSUB WRITE.NEW.LINE
+    END
+    RETURN
+********************************************************************************
+CHECK.CONDITION:
+*****************
+    CON.PASSED = "TRUE"
+    COND.STS = R.CIB.SMS.FORMAT<CIBSF.CONDITION>
+
+*    IF COND.STS = "YES" THEN
+    IF COND.STS EQ "YES" THEN
+        CON.FIELD = R.CIB.SMS.FORMAT<CIBSF.CON.NAME>
+
+        SS.REQ.FIELD = CON.FIELD
+        Y.SS.TABLE = Y.APP.NAME.MAIN
+        GOSUB GET.SS.FIELD.NO
+*        IF SS.FIELD.NO = "" THEN
+        IF SS.FIELD.NO EQ "" THEN
+            GOSUB GET.SS.USER.FIELD.NO
+            CHANGE ">" TO "" IN LOCAL.FIELD.POS
+            LOCAL.FIELD.POS = FIELD(LOCAL.FIELD.POS,",",2)
+            ALL.FIELD       = R.APP.NAME<LOCAL.REF.FIELD.NO>
+            CON.FIELD       = FIELD(ALL.FIELD,VM,LOCAL.FIELD.POS)
+
+*           CON.FIELD = R.READ.MAIN.APP.NEW<Y.MAIN.F.NAME>
+        END
+        CON.SEL = R.CIB.SMS.FORMAT<CIBSF.CON.SELECTION>
+        CON.VALUE = R.CIB.SMS.FORMAT<CIBSF.CON.VALUE>
+*        IF CON.SEL = "EQ" THEN
+        IF SS.FIELD.NO EQ "" THEN
+*            IF CON.FIELD <> CON.VALUE THEN
+            IF CON.FIELD NE CON.VALUE THEN
+                CON.PASSED = "FAILED"
+            END
+        END
+        ELSE
+*            IF CON.SEL = "LT" THEN
+            IF CON.SEL EQ "LT" THEN
+*                IF CON.FIELD > CON.VALUE THEN
+                IF CON.FIELD GT CON.VALUE THEN
+                    CON.PASSED = "FAILED"
+                END
+            END
+            ELSE
+*                IF CON.SEL = "GT" THEN
+                IF CON.SEL EQ "GT" THEN
+*                    IF CON.FIELD < CON.VALUE THEN
+                    IF CON.FIELD LT CON.VALUE THEN
+                        CON.PASSED = "FAILED"
+                    END
+                END
+            END
+        END
+    END
+
+    RETURN
+********************************************************************************
+READ.FILE.SAMPLE:
+*****************
+    MAIN.APPLICATION.NAME = FIELD(MAIN.APP,"|",1)
+    MAIN.APPLICATION.ID = FIELD(MAIN.APP,"|",2)
+    ID.NEW = MAIN.APPLICATION.ID
+    GOSUB READ.MAIN.APP.NEW
+    Y.NEW.VALUE = "NULL"
+    NO.OF.TAGS = 0
+    BODY.ARRAY.NAME = ""
+    BODY.ARRAY.VALUE = ""
+    MY.FILE = R.CIB.SMS.FORMAT<CIBSF.BODY.FILE.NAME>
+    ALL.DIR = R.CIB.SMS.FORMAT<CIBSF.BODY.LOC>
+*    IF FLAG.FIRST = "TRUE" THEN
+    IF FLAG.FIRST EQ "TRUE" THEN
+        MSG.TYPE = R.CIB.SMS.FORMAT<CIBSF.MSG_TYPE>
+        ORG.SMS.FORMAT.ID = SMS.FORMAT.ID
+    END
+    ELSE
+        FLAG.FIRST = "FALSE"
+    END
+    NO.OF.LINES = 0
+    MSG.FORMAT = ""
+    EOF = 0
+    OPENSEQ ALL.DIR , MY.FILE TO V.FILE.COMPARE THEN
+        LOOP WHILE NOT(EOF)
+            CURRENT.ALL.LINE = ''
+            READSEQ CURRENT.ALL.LINE FROM V.FILE.COMPARE THEN
+                IF CURRENT.ALL.LINE EQ '' THEN
+                    EOF = 1
+                    CLOSE MY.FILE
+                END
+                ELSE
+*                    NO.OF.LINES ++
+                    NO.OF.LINES = NO.OF.LINES + 1
+                    TEMP.MSG = TRIM(CURRENT.ALL.LINE)
+                    GOSUB CHECK.LINE
+                END
+            END
+            ELSE
+                EOF = 1
+                CLOSE MY.FILE
+            END
+        REPEAT
+    END
+    CHANGE "|" TO " " IN MSG.FORMAT
+    CHANGE FM TO "|" IN MSG.FORMAT
+*    MOBILE.NO = "010000036654"
+    GOSUB CHECK.MSG.TYPE
+    GOSUB CHECK.CONDITION.SMS
+*    IF CON.AMT.PASSED = "TRUE" THEN
+    IF CON.AMT.PASSED EQ "TRUE" THEN
+        GOSUB SEND.MSG
+*        IF FLAG.FIRST = "FALSE" THEN
+        IF FLAG.FIRST EQ "FALSE" THEN
+            MSG.TYPE = "EMAIL"
+            SMS.FORMAT.ID = SMS.FORMAT.ID:"E"
+            GOSUB PROCESS
+        END
+    END
+    ELSE
+        NEW.LINE = "CONDITION DIDNT PASS |":AMTS.STRING:"|":SMS.FORMAT.ID
+        GOSUB WRITE.NEW.LINE
+    END
+	CLOSESEQ V.FILE.COMPARE
+    RETURN
+********************************************************************************
+SEND.MSG:
+*********
+
+*    IF MOBILE.NO <> "" THEN
+    IF MOBILE.NO NE "" THEN
+        MOBILE.NO.COUNT = DCOUNT(MOBILE.NO,FM)
+        MOBILE.NO.ARRAY = MOBILE.NO
+        FOR X = 1 TO MOBILE.NO.COUNT
+            MOBILE.NO = FIELD(MOBILE.NO.ARRAY,FM,X)
+*            IF LEN(MOBILE.NO) > 10 THEN
+            IF LEN(MOBILE.NO) GT 10 THEN
+                GOSUB UPD.REPORT
+                CALL CIB.SMS.GENERATE.XML(MOBILE.NO,MSG.FORMAT,MSG.TYPE)
+            END
+            ELSE
+                NEW.LINE = "MOBILE NUMBER LEN LESS THAN 10 ":ID.NEW:" ":CUSTOMER.ID
+                GOSUB WRITE.NEW.LINE
+            END
+        NEXT X
+    END
+    ELSE
+*        IF EMAIL <> "" THEN
+        IF EMAIL NE "" THEN
+            EMAIL.COUNT = DCOUNT(EMAIL,FM)
+            EMAIL.ARRAY = EMAIL
+            FOR X = 1 TO EMAIL.COUNT
+                EMAIL = FIELD(EMAIL.ARRAY,FM,X)
+
+                GOSUB UPD.REPORT
+                GOSUB CHECK.SMS.EMAIL.TO.SUB
+                CALL CIB.SMS.GENERATE.XML(EMAIL,MSG.FORMAT,MSG.TYPE)
+            NEXT X
+        END
+        ELSE
+            NEW.LINE = "NO MOBILE NUMBER OR EMAIL FOR THIS MESSAGE ":ID.NEW:" ":CUSTOMER.ID
+            GOSUB WRITE.NEW.LINE
+        END
+    END
+    RETURN
+********************************************************************************
+CHECK.MSG.TYPE:
+***************
+    EMAIL = ""
+    MOBILE.NO = ""
+*    IF MSG.TYPE = "SMS" THEN
+    IF MSG.TYPE EQ "SMS" THEN
+*        GOSUB GET.SMS.MOBILE.NO
+        GOSUB CHECK.MOBILE.NO
+    END
+    ELSE
+*        IF MSG.TYPE = "" THEN
+        IF MSG.TYPE EQ "" THEN
+            GOSUB CHECK.MOBILE.NO
+* GOSUB GET.SMS.MOBILE.NO
+        END
+        ELSE
+*            IF MSG.TYPE = "EMAIL" THEN
+            IF MSG.TYPE EQ "EMAIL" THEN
+                GOSUB CHECK.EMAIL
+            END
+            ELSE
+*                IF MSG.TYPE = "BOTH" THEN
+                IF MSG.TYPE EQ "BOTH" THEN
+* MCBCS - 20180625- E
+                    FLAG.FIRST = "FALSE"
+                    MSG.TYPE = "SMS"
+                    GOSUB CHECK.MOBILE.NO
+*GOSUB GET.SMS.MOBILE.NO
+                END
+            END
+        END
+    END
+    RETURN
+********************************************************************************
+CHECK.SMS.EMAIL.TO.SUB:
+***********************
+
+    Y.TEMP.BODY.TO= "GET.EMAIL.FROM"
+    Y.BODY.NAME = R.CIB.SMS.FORMAT<CIBSF.BODY.NAME>
+    CHANGE VM TO FM IN Y.BODY.NAME
+    LOCATE Y.TEMP.BODY.TO IN Y.BODY.NAME SETTING POS.ID THEN
+        NEW.LINE = Y.TEMP.BODY.TO:MY.SEP:"FIELD LOCATED"
+        GOSUB WRITE.NEW.LINE
+        EMAIL.TO =   R.CIB.SMS.FORMAT<CIBSF.APP.NAME,POS.ID>
+        EMAIL = EMAIL:"|":EMAIL.TO
+    END
+    Y.TEMP.BODY.TO= "GET.EMAIL.SUB"
+    Y.BODY.NAME = R.CIB.SMS.FORMAT<CIBSF.BODY.NAME>
+    CHANGE VM TO FM IN Y.BODY.NAME
+    LOCATE Y.TEMP.BODY.TO IN Y.BODY.NAME SETTING POS.ID THEN
+        NEW.LINE = Y.TEMP.BODY.TO:MY.SEP:"FIELD LOCATED"
+        GOSUB WRITE.NEW.LINE
+        EMAIL.SUBJ =   R.CIB.SMS.FORMAT<CIBSF.APP.NAME,POS.ID>
+        EMAIL = EMAIL:"|":EMAIL.SUBJ
+    END
+    RETURN
+********************************************************************************
+CHECK.EMAIL:
+*************
+    OLD.SMS.FORMAT.ID = SMS.FORMAT.ID
+    SMS.FORMAT.ID = ORG.SMS.FORMAT.ID
+    Y.FILE.BODY.NAME = "GET.EMAIL.APP"
+    GOSUB READ.BODY.FIELD
+* MCBCS - 20180625- S
+*    IF Y.NEW.VALUE <> "NULL" THEN
+    IF Y.NEW.VALUE NE "NULL" THEN
+        CALL F.READ(FN.CIB.SMS.MOBILE,Y.NEW.VALUE:".":SMS.FORMAT.ID ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+        IF R.CIB.SMS.MOBILE THEN
+            GOSUB CHECK.EMAIL.COUNT
+        END
+        ELSE
+            TXN.TYPE = FIELD(SMS.FORMAT.ID,"-",2)
+            CALL F.READ(FN.CIB.SMS.MOBILE,Y.NEW.VALUE:".":TXN.TYPE ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+            IF R.CIB.SMS.MOBILE THEN
+                GOSUB CHECK.EMAIL.COUNT
+            END
+            ELSE
+                CALL F.READ(FN.CIB.SMS.MOBILE,CUSTOMER.ID:".":SMS.FORMAT.ID ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+                IF R.CIB.SMS.MOBILE THEN
+                    GOSUB CHECK.EMAIL.COUNT
+                END
+                ELSE
+                    TXN.TYPE = FIELD(SMS.FORMAT.ID,"-",2)
+                    CALL F.READ(FN.CIB.SMS.MOBILE,CUSTOMER.ID:".":TXN.TYPE ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+                    IF R.CIB.SMS.MOBILE THEN
+                        GOSUB CHECK.EMAIL.COUNT
+                    END
+                    ELSE
+                        EMAIL = ""
+                    END
+                END
+            END
+        END
+    END
+    SMS.FORMAT.ID = OLD.SMS.FORMAT.ID
+*    IF EMAIL = "" THEN
+    IF EMAIL EQ "" THEN
+        CALL F.READ(FN.CUSTOMER,CUSTOMER.ID, R.CUSTOMER, F.CUSTOMER, ERR1)
+        IF R.CUSTOMER THEN
+            EMAIL<1> = R.CUSTOMER<EB.CUS.EMAIL.1,1>
+*    EMAIL<1> = "engy.dessouki@cibeg.com"
+            EMAIL<1> = "Mohamed.Naga@cibeg.com"
+        END
+    END
+    RETURN
+********************************************************************************
+GET.SMS.MOBILE.NO:
+*****************
+    GOSUB GET.MOBILE.APP
+*    IF MOBILE.NO = "" THEN
+    IF MOBILE.NO EQ "" THEN
+        MOBILE.NO<1> = R.CUSTOMER<EB.CUS.SMS.1,1>
+    END
+    RETURN
+********************************************************************************
+GET.MOBILE.APP:
+*****************
+
+    Y.FILE.BODY.NAME = "GET.MOBILE.APP"
+    GOSUB READ.BODY.FIELD
+*    IF Y.NEW.VALUE <> "NULL" THEN
+    IF Y.NEW.VALUE NE "NULL" THEN
+* MCBCS - 20180625- E
+        CALL F.READ(FN.CIB.SMS.MOBILE,Y.NEW.VALUE:".":SMS.FORMAT.ID ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+        IF R.CIB.SMS.MOBILE THEN
+            GOSUB CHECK.MOBILE.COUNT
+        END
+        ELSE
+            TXN.TYPE = FIELD(SMS.FORMAT.ID,"-",2)
+            CALL F.READ(FN.CIB.SMS.MOBILE,Y.NEW.VALUE:".":TXN.TYPE ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+            IF R.CIB.SMS.MOBILE THEN
+                GOSUB CHECK.MOBILE.COUNT
+            END
+            ELSE
+                CALL F.READ(FN.CIB.SMS.MOBILE,CUSTOMER.ID:".":SMS.FORMAT.ID ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+                IF R.CIB.SMS.MOBILE THEN
+                    GOSUB CHECK.MOBILE.COUNT
+                END
+                ELSE
+                    TXN.TYPE = FIELD(SMS.FORMAT.ID,"-",2)
+                    CALL F.READ(FN.CIB.SMS.MOBILE,CUSTOMER.ID:".":TXN.TYPE ,R.CIB.SMS.MOBILE , F.CIB.SMS.MOBILE,ERR1)
+                    IF R.CIB.SMS.MOBILE THEN
+                        GOSUB CHECK.MOBILE.COUNT
+                    END
+                    ELSE
+                        MOBILE.NO = ""
+                    END
+                END
+            END
+        END
+    END
+    RETURN
+********************************************************************************
+CHECK.MOBILE.NO:
+*****************
+    GOSUB GET.MOBILE.APP
+* MCBCS - 20180625- S
+*    IF MOBILE.NO = "" THEN
+    IF MOBILE.NO EQ "" THEN
+        CALL F.READ(FN.CUSTOMER,CUSTOMER.ID, R.CUSTOMER, F.CUSTOMER, ERR1)
+        MOBILE.NO<1> = R.CUSTOMER<EB.CUS.PHONE.1,2>
+    END
+    RETURN
+********************************************************************************
+CHECK.MOBILE.COUNT:
+******************
+    MOBILE.NO.COUNT = DCOUNT(R.CIB.SMS.MOBILE<CIBSM.MOBILE.NO>,VM)
+    FOR X = 1 TO MOBILE.NO.COUNT
+        MOBILE.NO<X> = R.CIB.SMS.MOBILE<CIBSM.MOBILE.NO,X>
+    NEXT X
+    RETURN
+*********************************************************************************
+CHECK.EMAIL.COUNT:
+******************
+    EMAIL.NO.COUNT = DCOUNT(R.CIB.SMS.MOBILE<CIBSM.EMAIL>,VM)
+    FOR X = 1 TO EMAIL.NO.COUNT
+        EMAIL<X> = R.CIB.SMS.MOBILE<CIBSM.EMAIL,X>
+    NEXT X
+    RETURN
+********************************************************************************
+CHECK.CHARGE.SMS:
+*****************
+*    IF R.CIB.SMS.MOBILE <> "" THEN
+    IF R.CIB.SMS.MOBILE NE "" THEN
+        CHARGE.STS =  R.CIB.SMS.MOBILE<CIBSM.CHARGES.STS>
+*        IF CHARGE.STS = "CHARGED" THEN
+        IF CHARGE.STS EQ "CHARGED" THEN
+            CHRG.CODE = R.CIB.SMS.MOBILE<CIBSM.CHARGES.CODE>
+            CHARGE.TYPE = R.CIB.SMS.MOBILE<CIBSM.CHARGES>
+*            IF CHARGE.TYPE = "DEBIT" THEN
+            IF CHARGE.TYPE EQ "DEBIT" THEN
+                Y.SMS.ID = FIELD(SMS.FORMAT.ID,"-",3)
+*                IF FIELD(SMS.FORMAT.ID,"-",3) = "DR" THEN
+                IF Y.SMS.ID EQ "DR" THEN
+                    GOSUB CHECK.CHARGE.CODE
+                END
+                ELSE
+*                    IF TXN.TYPE[1,2] = "OT" THEN
+                    Y.TXN.ID.TYPE = TXN.TYPE[1,2]
+                    IF Y.TXN.ID.TYPE EQ "OT" THEN
+                        GOSUB CHECK.CHARGE.CODE
+                    END
+                END
+            END
+            ELSE
+*                IF CHARGE.TYPE = "CREDIT" THEN
+                IF CHARGE.TYPE EQ "CREDIT" THEN
+*                    IF FIELD(SMS.FORMAT.ID,"-",3) = "CR" THEN
+                    Y.SMS.ID = FIELD(SMS.FORMAT.ID,"-",3)
+                    IF Y.SMS.ID EQ "CR" THEN
+                        GOSUB CHECK.CHARGE.CODE
+                    END
+                END
+                ELSE
+*                    IF CHARGE.TYPE = "BOTH" THEN
+                    IF CHARGE.TYPE EQ "BOTH" THEN
+                        GOSUB CHECK.CHARGE.CODE
+                    END
+                END
+            END
+        END
+    END
+
+
+    RETURN
+********************************************************************************
+CHECK.CHARGE.CODE:
+******************
+*    CALL F.READ(FN.FT.CHARGE.TYPE,CHRG.CODE ,R.FT.CHARGE.TYPE ,F.FT.CHARGE.TYPE)
+*TAFJ Conversion_20200408 Start
+	 CALL F.READ(FN.FT.CHARGE.TYPE,CHRG.CODE ,R.FT.CHARGE.TYPE ,F.FT.CHARGE.TYPE,ERROR.CHARGE.TYPE)
+*TAFJ Conversion_20200408 End
+    IF R.FT.CHARGE.TYPE THEN
+
+    END
+    RETURN
+********************************************************************************
+CHECK.CONDITION.SMS:
+********************
+    CON.AMT.PASSED = "TRUE"
+*    IF R.CIB.SMS.MOBILE <> "" THEN
+    IF R.CIB.SMS.MOBILE NE "" THEN
+        Y.AMT.LIMIT = R.CIB.SMS.MOBILE<CIBSM.AMT.LIMIT>
+        Y.AMT.CCY = R.CIB.SMS.MOBILE<CIBSM.AMT.CCY>
+        Y.SEND.AMT = Y.AMOUNT.VALUE[4,13]
+        Y.SEND.CCY =  Y.AMOUNT.VALUE[1,3]
+*        IF Y.AMT.LIMIT <> "" THEN
+        IF Y.AMT.LIMIT NE "" THEN
+*            IF Y.SEND.CCY = Y.AMT.CCY THEN
+            IF Y.SEND.CCY EQ Y.AMT.CCY THEN
+*                IF Y.AMT.LIMIT >= Y.SEND.AMT THEN
+                IF Y.AMT.LIMIT GE Y.SEND.AMT THEN
+                    CON.AMT.PASSED = "FALSE"
+                END
+            END
+            ELSE
+                BUY.CCY = Y.AMT.CCY
+                BUY.AMT = Y.AMT.LIMIT
+                SELL.CCY = Y.SEND.CCY
+                IEX.MSG = "####|11|":BUY.CCY:"|":BUY.AMT:"|":SELL.CCY:"||||||"
+                CALL CIB.EXCH.RATE.SC(IEX.MSG,OEX.MSG)
+*                IF FIELD(OEX.MSG,"|",2) = "0000" THEN
+                Y.OEX.MSG = FIELD(OEX.MSG,"|",2)
+                IF Y.OEX.MSG EQ "0000" THEN
+                    Y.AMT.LIMIT =  FIELD(OEX.MSG,"|",7)
+*                    IF Y.AMT.LIMIT >= Y.SEND.AMT THEN
+                    IF Y.AMT.LIMIT GE Y.SEND.AMT THEN
+* MCBCS - 20180625- E
+                        CON.AMT.PASSED = "FALSE"
+                    END
+                END
+            END
+        END
+        AMTS.STRING = Y.AMT.LIMIT:"|":Y.AMT.CCY:"|":Y.SEND.AMT:"|":Y.SEND.CCY
+    END
+    RETURN
+********************************************************************************
+UPD.REPORT:
+***********
+    Y.SMS.REPORT = ID.NEW:"-":TODAY:TIME():FIELD(REP.ID,"|",2)
+    CALL F.READ(FN.CIB.SMS.REPORT, Y.SMS.REPORT,R.CIB.SMS.REPORT,F.CIB.SMS.REPORT,ERR1)
+    IF R.CIB.SMS.REPORT THEN
+        NEW.LINE = "Cannot update report ":Y.SMS.REPORT
+        GOSUB WRITE.NEW.LINE
+
+    END
+    ELSE
+        GOSUB READ.SMS.REP
+    END
+    RETURN
+********************************************************************************
+READ.SMS.REP:
+*************
+    CALL F.READ(FN.CUSTOMER,CUSTOMER.ID, R.CUSTOMER, F.CUSTOMER, ERR1)
+    IF R.CUSTOMER THEN
+        CUS.NAME = R.CUSTOMER<EB.CUS.SHORT.NAME>
+    END
+
+    R.CIB.SMS.REPORT<CIBSR.CUST.ID> = CUSTOMER.ID
+    R.CIB.SMS.REPORT<CIBSR.CUST.NAME> = CUS.NAME
+    R.CIB.SMS.REPORT<CIBSR.DATE> = TODAY
+    TXN.TIME = OCONV(TIME(), "MTS")
+    R.CIB.SMS.REPORT<CIBSR.TXNTIME> = TXN.TIME
+    R.CIB.SMS.REPORT<CIBSR.MOB.NO> = MOBILE.NO
+    R.CIB.SMS.REPORT<CIBSR.EMAILAD> = EMAIL
+    R.CIB.SMS.REPORT<CIBSR.MSG.FORMAT> = SMS.FORMAT.ID
+    R.CIB.SMS.REPORT<CIBSR.TRANSAC> = FIELD(REP.ID,"|",2)
+    CHANGE FM TO VM IN BODY.ARRAY.VALUE
+    CHANGE FM TO VM IN BODY.ARRAY.NAME
+    R.CIB.SMS.REPORT<CIBSR.BODYNAME> = BODY.ARRAY.NAME
+    R.CIB.SMS.REPORT<CIBSR.BODYVALUE> = BODY.ARRAY.VALUE
+    CALL F.WRITE(FN.CIB.SMS.REPORT,Y.SMS.REPORT,R.CIB.SMS.REPORT)
+    GOSUB UPDATE.CONCAT
+* CALL JOURNAL.UPDATE(Y.SMS.REPORT)
+
+    RETURN
+********************************************************************************
+UPDATE.CONCAT:
+*************
+
+    CALL F.READ(FN.CIB.SMS.REP.CONCAT, TODAY,R.CIB.SMS.REP.CONCAT,F.CIB.SMS.REP.CONCAT,ERR1)
+    IF R.CIB.SMS.REP.CONCAT THEN
+        CUST.ID.ARRAY =  R.CIB.SMS.REP.CONCAT<SMS.CON.CUS.ID>
+        CHANGE VM TO FM IN CUST.ID.ARRAY
+        LOCATE CUSTOMER.ID IN CUST.ID.ARRAY SETTING POS.CONCAT THEN
+            R.CIB.SMS.REP.CONCAT<SMS.CON.REP.ID,POS.CONCAT,-1> = Y.SMS.REPORT
+        END
+        ELSE
+            R.CIB.SMS.REP.CONCAT<SMS.CON.CUS.ID,-1> = CUSTOMER.ID
+            R.CIB.SMS.REP.CONCAT<SMS.CON.REP.ID,-1> = Y.SMS.REPORT
+        END
+    END
+    ELSE
+        R.CIB.SMS.REP.CONCAT<SMS.CON.CUS.ID,-1> = CUSTOMER.ID
+        R.CIB.SMS.REP.CONCAT<SMS.CON.REP.ID,-1> = Y.SMS.REPORT
+    END
+    CALL F.WRITE(FN.CIB.SMS.REP.CONCAT,TODAY,R.CIB.SMS.REP.CONCAT)
+
+    RETURN
+********************************************************************************
+CHECK.LINE:
+**********
+    OPEN.TAG = "<"
+    CLOSE.OPEN.TAG = ">"
+    CLOSE.OPEN.TAG.COUNTER = DCOUNT(TEMP.MSG,CLOSE.OPEN.TAG)
+* MCBCS - 20180625- S
+*    IF CLOSE.OPEN.TAG.COUNTER > 1 THEN
+    IF CLOSE.OPEN.TAG.COUNTER GT 1 THEN
+        FOR X = 1 TO CLOSE.OPEN.TAG.COUNTER
+            TEMP.VALUE = FIELD(TEMP.MSG,CLOSE.OPEN.TAG,1)
+*  NEW.COUNT = X +1
+            Y.FILE.BODY.NAME = FIELD(TEMP.VALUE,OPEN.TAG,2)
+*            IF Y.FILE.BODY.NAME <> "" THEN
+            IF Y.FILE.BODY.NAME NE "" THEN
+*                IF Y.FILE.BODY.NAME = "br" THEN
+                IF Y.FILE.BODY.NAME EQ "br" THEN
+                END
+                ELSE
+*                    NO.OF.TAGS ++
+                    NO.OF.TAGS = NO.OF.TAGS + 1
+                    BODY.ARRAY.NAME<NO.OF.TAGS> = Y.FILE.BODY.NAME
+                    GOSUB READ.BODY.FIELD
+*                    IF Y.NEW.VALUE <> "NULL" THEN
+                    IF Y.NEW.VALUE NE "NULL" THEN
+                        BODY.ARRAY.VALUE<NO.OF.TAGS> = Y.NEW.VALUE.BEFORE
+                        CHANGE "<":Y.FILE.BODY.NAME:">" TO Y.NEW.VALUE IN TEMP.MSG
+*                        IF Y.FILE.BODY.NAME = "AMT" THEN
+                        IF Y.FILE.BODY.NAME EQ "AMT" THEN
+                            Y.AMOUNT.VALUE = Y.NEW.VALUE
+                        END
+                        MSG.FORMAT<NO.OF.LINES> = TEMP.MSG
+                        NEW.LINE = MSG.FORMAT
+                        GOSUB WRITE.NEW.LINE
+                    END
+                    ELSE
+                        NEW.LINE = "ERORR IN CREATING MESSAGE FOR ":SMS.FORMAT.ID:" IN GETTING ":Y.FILE.BODY.NAME
+                        GOSUB WRITE.NEW.LINE
+                    END
+                END
+            END
+        NEXT X
+    END
+    ELSE
+        MSG.FORMAT<NO.OF.LINES> = TEMP.MSG
+    END
+    RETURN
+*****************************************************************************
+READ.BODY.FIELD:
+****************
+    Y.BODY.NAME = R.CIB.SMS.FORMAT<CIBSF.BODY.NAME>
+    CHANGE VM TO FM IN Y.BODY.NAME
+    LOCATE Y.FILE.BODY.NAME IN Y.BODY.NAME SETTING POS.ID THEN
+        NEW.LINE = Y.FILE.BODY.NAME:MY.SEP:"FIELD LOCATED"
+        GOSUB WRITE.NEW.LINE
+        GOSUB CHANGE.VALUE
+        Y.NEW.VALUE.BEFORE = Y.NEW.VALUE
+        MV.POS = R.CIB.SMS.FORMAT<CIBSF.MV.POS,POS.ID>
+*        IF MV.POS <> "" THEN
+        IF MV.POS NE "" THEN
+            SV.POS = R.CIB.SMS.FORMAT<CIBSF.SV.POS,POS.ID>
+*            IF SV.POS <> "" THEN
+            IF SV.POS NE "" THEN
+                Y.NEW.VALUE = FIELD(Y.NEW.VALUE,VM,MV.POS)
+                Y.NEW.VALUE = FIELD(Y.NEW.VALUE,SM,SV.POS)
+            END
+            ELSE
+                Y.NEW.VALUE = FIELD(Y.NEW.VALUE,VM,MV.POS)
+            END
+        END
+        ELSE
+            SV.POS = R.CIB.SMS.FORMAT<CIBSF.SV.POS,POS.ID>
+*            IF SV.POS <> "" THEN
+            IF SV.POS NE "" THEN
+                Y.NEW.VALUE = FIELD(Y.NEW.VALUE,SM,SV.POS)
+            END
+        END
+        FROM.POS = R.CIB.SMS.FORMAT<CIBSF.FROM.POS,POS.ID>
+        TO.POS = R.CIB.SMS.FORMAT<CIBSF.LENGTH.POS,POS.ID>
+*        IF FROM.POS <> "" THEN
+        IF FROM.POS NE "" THEN
+*            IF TO.POS <> "" THEN
+            IF TO.POS NE "" THEN
+                Y.NEW.VALUE = Y.NEW.VALUE[FROM.POS,TO.POS]
+            END
+        END
+
+        CHANGE VM TO " " IN Y.NEW.VALUE
+        CHANGE SM TO " " IN Y.NEW.VALUE
+        CHANGE FM TO " " IN Y.NEW.VALUE
+
+        GOSUB CHECK.PROTECT
+        GOSUB CHECK.DATE
+    END
+    RETURN
+********************************************************************************
+CHANGE.VALUE:
+*************
+    Y.APP.NAME.MAIN  = R.CIB.SMS.FORMAT<CIBSF.SMS.APP.NAME>
+    Y.APP.NAME = R.CIB.SMS.FORMAT<CIBSF.APP.NAME,POS.ID>
+*    IF Y.APP.NAME <> "MAIN" THEN
+    IF Y.APP.NAME NE "MAIN" THEN
+        OLD.POS.ID = POS.ID
+
+*        IF R.CIB.SMS.FORMAT<CIBSF.APP.READ.ID,POS.ID> = "YES" THEN
+        IF R.CIB.SMS.FORMAT<CIBSF.APP.READ.ID,POS.ID> EQ "YES" THEN
+            GOSUB GET.APP.ID
+            GOSUB GET.READ.VALUE
+            Y.NEW.VALUE = Y.GET.VALUE
+        END
+*        IF R.CIB.SMS.FORMAT<CIBSF.APP.READ.ID,POS.ID> = "OTHER" THEN
+        IF R.CIB.SMS.FORMAT<CIBSF.APP.READ.ID,POS.ID> EQ "OTHER" THEN
+            COUNTER = 1
+            GOSUB GET.APP.ID
+            GOSUB GET.READ.VALUE
+            GOSUB GET.OTHERS
+            Y.NEW.VALUE = Y.GET.VALUE
+        END
+        POS.ID = OLD.POS.ID
+    END
+    ELSE
+        Y.MAIN.F.NAME = R.CIB.SMS.FORMAT<CIBSF.APP.FIELD.NAME,POS.ID>
+*        IF Y.MAIN.F.NAME = "ID.VAL" THEN
+        IF Y.MAIN.F.NAME EQ "ID.VAL" THEN
+            Y.NEW.VALUE = MAIN.APPLICATION.ID
+        END
+        ELSE
+            SS.REQ.FIELD = Y.MAIN.F.NAME
+            Y.SS.TABLE = Y.APP.NAME.MAIN
+            GOSUB GET.SS.FIELD.NO
+*            IF SS.FIELD.NO = "" THEN
+            IF SS.FIELD.NO EQ "" THEN
+* MCBCS - 20180625- E
+                GOSUB GET.SS.USER.FIELD.NO
+* Y.MAIN.F.NAME= SS.FIELD.NO
+                CHANGE ">" TO "" IN LOCAL.FIELD.POS
+                LOCAL.FIELD.POS = FIELD(LOCAL.FIELD.POS,",",2)
+                ALL.FIELD = R.READ.MAIN.APP.NEW<LOCAL.REF.FIELD.NO>
+                Y.NEW.VALUE = FIELD(ALL.FIELD,VM,LOCAL.FIELD.POS)
+            END
+            ELSE
+                Y.MAIN.F.NAME= SS.FIELD.NO
+                Y.NEW.VALUE = R.READ.MAIN.APP.NEW<Y.MAIN.F.NAME>
+            END
+        END
+    END
+    RETURN
+********************************************************************************
+GET.OTHERS:
+***********
+    Y.APP.ID = Y.GET.VALUE
+    Y.FILE.BODY.NAME.OTHERS = Y.FILE.BODY.NAME:".":COUNTER
+    LOCATE Y.FILE.BODY.NAME.OTHERS IN Y.BODY.NAME SETTING POS.ID THEN
+        NEW.LINE = Y.FILE.BODY.NAME.OTHERS:MY.SEP:"FIELD LOCATED"
+        GOSUB WRITE.NEW.LINE
+        Y.APP.ID = Y.GET.VALUE
+        GOSUB GET.READ.VALUE
+        GOSUB CHECK.OTHER
+    END
+    RETURN
+********************************************************************************
+CHECK.OTHER:
+************
+* MCBCS - 20180625- S
+*    IF R.CIB.SMS.FORMAT<CIBSF.APP.READ.ID,POS.ID> = "OTHER" THEN
+    IF R.CIB.SMS.FORMAT<CIBSF.APP.READ.ID,POS.ID> EQ "OTHER" THEN
+*        COUNTER ++
+        COUNTER = COUNTER + 1
+        GOSUB GET.OTHERS
+    END
+    RETURN
+********************************************************************************
+GET.APP.ID:
+***********
+    Y.APP.ID =  R.CIB.SMS.FORMAT<CIBSF.APP.ID,POS.ID>
+    SS.REQ.FIELD = Y.APP.ID
+    Y.SS.TABLE = Y.APP.NAME.MAIN
+    GOSUB GET.SS.FIELD.NO
+*    IF SS.FIELD.NO = "" THEN
+    IF SS.FIELD.NO EQ "" THEN
+        GOSUB GET.SS.USER.FIELD.NO
+        CHANGE ">" TO "" IN LOCAL.FIELD.POS
+        LOCAL.FIELD.POS = FIELD(LOCAL.FIELD.POS,",",2)
+        ALL.FIELD = R.READ.MAIN.APP.NEW<LOCAL.REF.FIELD.NO>
+        Y.APP.ID = FIELD(ALL.FIELD,VM,LOCAL.FIELD.POS)
+    END
+    ELSE
+        Y.APP.ID = SS.FIELD.NO
+        Y.APP.ID =  R.READ.MAIN.APP.NEW<Y.APP.ID>
+    END
+    GOSUB CHECK.POSITIONS
+    RETURN
+********************************************************************************
+CHECK.POSITIONS:
+***************
+    FROM.POS = R.CIB.SMS.FORMAT<CIBSF.FROM.POS,POS.ID>
+    TO.POS = R.CIB.SMS.FORMAT<CIBSF.LENGTH.POS,POS.ID>
+*    IF FROM.POS <> "" THEN
+    IF FROM.POS NE "" THEN
+*        IF TO.POS <> "" THEN
+        IF TO.POS NE "" THEN
+            Y.APP.ID = Y.APP.ID[FROM.POS,TO.POS]
+        END
+    END
+    RETURN
+********************************************************************************
+GET.READ.VALUE:
+***************
+*    IF Y.APP.ID <> "" THEN
+    IF Y.APP.ID NE "" THEN
+        APP.NAME = R.CIB.SMS.FORMAT<CIBSF.APP.NAME,POS.ID>
+        FILE.EXT = R.CIB.SMS.FORMAT<CIBSF.APP.TYPE,POS.ID>:"."
+        GOSUB READ.OPEN.FILE
+        CALL F.READ(FN.APP.NAME, Y.APP.ID,R.APP.NAME,F.APP.NAME,ERR1)
+        IF R.APP.NAME THEN
+            Y.APP.FIELD.NAME = R.CIB.SMS.FORMAT<CIBSF.APP.FIELD.NAME,POS.ID>
+            SS.REQ.FIELD = Y.APP.FIELD.NAME
+            Y.SS.TABLE = APP.NAME
+            GOSUB GET.SS.FIELD.NO
+*            IF SS.FIELD.NO = "" THEN
+            IF SS.FIELD.NO EQ "" THEN
+                GOSUB GET.SS.USER.FIELD.NO
+
+                CHANGE ">" TO "" IN LOCAL.FIELD.POS
+                LOCAL.FIELD.POS = FIELD(LOCAL.FIELD.POS,",",2)
+                ALL.FIELD = R.APP.NAME<LOCAL.REF.FIELD.NO>
+                Y.GET.VALUE = FIELD(ALL.FIELD,VM,LOCAL.FIELD.POS)
+
+*     Y.GET.VALUE = R.APP.NAME<LOCAL.REF.FIELD.NO,LOCAL.FIELD.POS>
+            END
+            ELSE
+                Y.APP.FIELD.NAME = SS.FIELD.NO
+                Y.GET.VALUE = R.APP.NAME<Y.APP.FIELD.NAME>
+            END
+* CHANGE VM TO " " IN Y.GET.VALUE
+*CHANGE FM TO " " IN Y.GET.VALUE
+        END
+    END
+    RETURN
+********************************************************************************
+READ.MAIN.APP.NEW:
+******************
+    FN.APP.NAME = MAIN.APPLICATION.NAME
+    F.APP.NAME = ''
+    CALL OPF(FN.APP.NAME,F.APP.NAME)
+    CALL F.READ(FN.APP.NAME, MAIN.APPLICATION.ID,R.APP.NAME,F.APP.NAME,ERR1)
+    R.READ.MAIN.APP.NEW = R.APP.NAME
+    RETURN
+********************************************************************************
+CHECK.DATE:
+***********
+    DATE.FLAG = R.CIB.SMS.FORMAT<CIBSF.DATE.VA,POS.ID>
+*    IF DATE.FLAG = "YES" THEN
+    IF DATE.FLAG EQ "YES" THEN
+        Y.NEW.VALUE.Y = Y.NEW.VALUE[1,4]
+        Y.NEW.VALUE.M = Y.NEW.VALUE[5,2]
+        Y.NEW.VALUE.D = Y.NEW.VALUE[7,2]
+        Y.NEW.VALUE = Y.NEW.VALUE.D:"/":Y.NEW.VALUE.M:"/":Y.NEW.VALUE.Y
+    END
+    RETURN
+********************************************************************************
+CHECK.PROTECT:
+**************
+    PROTECT.FLAG = R.CIB.SMS.FORMAT<CIBSF.PROTECTED,POS.ID>
+*    IF PROTECT.FLAG = "YES" THEN
+    IF PROTECT.FLAG EQ "YES" THEN
+        PROTECT.DIRECTION = R.CIB.SMS.FORMAT<CIBSF.L.R,POS.ID>
+        PROTECT.CHAR = R.CIB.SMS.FORMAT<CIBSF.NO.CHA,POS.ID>
+*        IF PROTECT.DIRECTION = "L" THEN
+        IF PROTECT.DIRECTION EQ "L" THEN
+* MCBCS - 20180625- E
+            PRO.VALUE = LEFT(Y.NEW.VALUE,PROTECT.CHAR)
+            NEW.PRO.VALUE = FMT(NEW.PRO.VALUE,"L0*":PROTECT.CHAR)
+            Y.NEW.VALUE = CHANGE(Y.NEW.VALUE,PRO.VALUE,NEW.PRO.VALUE)
+            NEW.LINE = " AFTER PROTECT":Y.NEW.VALUE:" ":NEW.PRO.VALUE:" ":PRO.VALUE
+            GOSUB WRITE.NEW.LINE
+
+        END
+        ELSE
+            PRO.VALUE = RIGHT(Y.NEW.VALUE,PROTECT.CHAR)
+            NEW.PRO.VALUE = FMT(NEW.PRO.VALUE,"L0*":PROTECT.CHAR)
+            Y.NEW.VALUE = CHANGE(Y.NEW.VALUE,PRO.VALUE,NEW.PRO.VALUE)
+            NEW.LINE = " AFTER PROTECT":Y.NEW.VALUE:" ":NEW.PRO.VALUE:" ":PRO.VALUE
+            GOSUB WRITE.NEW.LINE
+
+        END
+    END
+    RETURN
+********************************************************************************
+CREATE.TEXT.FILE:
+*****************
+*---------CIB-20190127----S----*
+*    MY.DIR  = 'CIB.SMS/LOG'
+    MY.DIR = '/gpfs/t24r20Shared/INTERFACES/CIB.SMS/LOG'
+*---------CIB-20190127----S----*
+    Y.TIME = TIME()
+    TEXT.FILE = 'FT SMS LOG FILE on ':TODAY:'.csv'
+
+    OPENSEQ MY.DIR ,TEXT.FILE TO V.FILE.IN THEN
+    END ELSE
+        OPENSEQ MY.DIR , TEXT.FILE TO V.FILE.IN THEN
+            CREATE V.FILE.IN THEN
+            END
+        END
+    END
 
     RETURN
 *****************************************************************************
-GET.LOCAL.FIELDS:
-*****************
-    LOCAL.APPLICATION = 'CUSTOMER'
-    LOCAL.FIELD = 'SMS.ALERT':VM:'E.SERV.AGREE':VM:'OTP.AGREE'
-    LOCAL.POSITION = ''
+GET.SS.FIELD.NO:
+****************
+    CALL F.READ(FN.SS, Y.SS.TABLE,R.SS,F.SS,ERR1)
+    IF R.SS THEN
+        SS.FIELDS.NAMES  = R.SS<SSL.SYS.FIELD.NAME>
+        CHANGE VM TO FM IN SS.FIELDS.NAMES
+        LOCATE SS.REQ.FIELD IN SS.FIELDS.NAMES SETTING SS.POS.ID THEN
+            SS.FIELD.NO = R.SS<SSL.SYS.FIELD.NO,SS.POS.ID,1>
+            NEW.LINE = SS.REQ.FIELD:"HAS FIELD NO  = ":SS.FIELD.NO
+            GOSUB WRITE.NEW.LINE
+        END
+        ELSE
+            SS.FIELD.NO = ""
+            NEW.LINE = SS.REQ.FIELD:"CANNOT FILE FIELD NAME IN SS "
+            GOSUB WRITE.NEW.LINE
+        END
 
-    CALL MULTI.GET.LOC.REF(LOCAL.APPLICATION,LOCAL.FIELD,LOCAL.POSITION)
-
-    SMS.ALERT.POS = LOCAL.POSITION<1,1>
-    E.SERV.AGREE.POS = LOCAL.POSITION<1,2>
-    OTP.AGREE.POS = LOCAL.POSITION<1,3>
-
-    LOCAL.APPLICATION = 'FUNDS.TRANSFER'
-    LOCAL.FIELD = 'SRC.CHANNEL':VM:'FT.TXN.NARR'
-    LOCAL.POSITION = ''
-
-    CALL MULTI.GET.LOC.REF(LOCAL.APPLICATION,LOCAL.FIELD,LOCAL.POSITION)
-    Y.SRC.CHANNEL.POS = LOCAL.POSITION<1,1>
-    Y.FT.TXN.NARR.POS = LOCAL.POSITION<1,2>
+    END
     RETURN
-*************************************************************************************
+*****************************************************************************
+GET.SS.USER.FIELD.NO:
+****************
+    CALL F.READ(FN.SS, Y.SS.TABLE,R.SS,F.SS,ERR1)
+    IF R.SS THEN
+        SS.FIELDS.NAMES  = R.SS<SSL.USR.FIELD.NAME>
+        CHANGE VM TO FM IN SS.FIELDS.NAMES
+        LOCATE SS.REQ.FIELD IN SS.FIELDS.NAMES SETTING SS.POS.ID THEN
+            SS.FIELD.NO = R.SS<SSL.USR.FIELD.NO,SS.POS.ID,1>
+            NEW.LINE = SS.REQ.FIELD:"HAS LOCAL FIELD EXIST = "
+            GOSUB WRITE.NEW.LINE
+            OLD.REQ.LOCAL = SS.REQ.FIELD
+            OLD.REQ.USR.NO = SS.FIELD.NO
+            SS.REQ.FIELD = "LOCAL.REF"
+            GOSUB GET.SS.FIELD.NO
+            LOCAL.FIELD.NAME = OLD.REQ.LOCAL
+*    LCL.APP.NAME = Y.SS.TABLE
+*  GOSUB READ.LOCAL.FIELD.VALUE
+            LOCAL.REF.FIELD.NO = SS.FIELD.NO
+            LOCAL.FIELD.POS = "<":FIELD(OLD.REQ.USR.NO,"<",2)
+
+        END
+        ELSE
+            NEW.LINE = SS.REQ.FIELD:"CANNOT FILE FIELD NAME IN SS "
+            GOSUB WRITE.NEW.LINE
+        END
+
+    END
+    RETURN
+*****************************************************************************
+WRITE.NEW.LINE:
+**************
+    WRITESEQ NEW.LINE APPEND TO V.FILE.IN ELSE
+    END
+    RETURN
+******************************************************************************
 PROGRAM.END:
 *************
+CLOSESEQ V.FILE.IN
     RETURN
 END
