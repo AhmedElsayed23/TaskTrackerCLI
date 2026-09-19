@@ -1,1 +1,204 @@
+*-----------------------------------------------------------------------------
+* <Rating>332</Rating>
+*-----------------------------------------------------------------------------
+    SUBROUTINE CIB.DUMP.FT.CIB.TPH
+
+*********************************** AUDIT INFORMATION ********************************
+* 1. Author&Date created  : AHMED20260715
+* 2. Site name    : CIB
+* 3. Product    : POR.TRANSACTION
+* 4. Routine type   :
+* 5. Installed on   : BATCH
+* 6. E.V.B record   :
+********************************** PROGRAM DESCRIPTION ********************************
+* 7. Description
+* --------------
+*
+*  Extract text file containing data of POR.TRANSACTION
+*
+* 8. Incoming arguments
+* -------------------------------
+* a)     :
+*
+* 9. Outgoing arguments
+* -------------------------------
+* a)     :
+*
+**********
+*
+* 20-Apr-2026			   Ahmed				 R25 Upgrade Code Retrofit
+*
+*
+****************************************************************************************
+* Insert files
+    $INSERT I_COMMON
+    $INSERT I_EQUATE
+    $INSERT I_F.DATES
+	$INSERT I_F.POR.TRANSACTION
+    $INSERT I_F.POR.SUPPLEMENTARY.INFO
+
+****************************************************************************************
+    GOSUB OPEN.FILES
+    GOSUB GET.LOCAL.FIELDS.FT
+    GOSUB CREATE.TEXT.FILE
+    GOSUB SELECT.FT.RECS
+    GOSUB CREATE.FT.ARRAY
+
+    GOTO PROGRAM.END
+*****************************************************************************
+OPEN.FILES:
+***********
+	FN.FILE.PORHIS = 'FBNK.POR.TRANSACTION$HIS'
+    F.FILE.PORHIS = ''
+    CALL OPF(FN.FILE.PORHIS, F.FILE.PORHIS)
+
+    FN.POR.SUPP = 'F.POR.SUPPLEMENTARY.INFO'
+    F.POR.SUPP = ''
+    CALL OPF(FN.POR.SUPP, F.POR.SUPP)
+
+    RETURN
+***********************************************************************************************************
+CREATE.TEXT.FILE:
+****************
+*////////////////WRITE (TEXT FILE) ///////////////////
+    MY.DIR = "/gpfs/t24r25Shared/LOCAL.SHARED/BATCHES/POST.COB"
+    MY.SEP='|'
+    MY.FILE = "FT.CIB.CSV.TPH"
+    
+	OPENSEQ MY.DIR , MY.FILE TO V.FILE.IN THEN
+        CLOSE V.FILE.IN
+        Y.TYPE = 'rm'
+        SOURCE.PATH =  MY.DIR:'/':MY.FILE
+        DESTINATION.PATH = ''
+        DESTINATION.FILENAME = ''
+        PARAM.SEPARATOR = ''
+        Y.IN = Y.TYPE:'#':SOURCE.PATH:'#':DESTINATION.PATH:'#':DESTINATION.FILENAME:'#':PARAM.SEPARATOR
+        CALL U.FILE.PROCESS.M.CIB(Y.IN,Y.OUT)
+        Y.OUT.FLG = FIELD(Y.OUT,'FM',1)
+        
+		IF Y.OUT.FLG EQ '-1' THEN
+            TEXT = FIELD(Y.OUT,'FM',2)
+            CALL FATAL.ERROR("CIB.DUMP.FT.CIB")
+        END
+
+        OPENSEQ MY.DIR , MY.FILE TO V.FILE.IN THEN
+            CREATE V.FILE.IN THEN
+            END
+        END
+    END
+    ELSE
+        OPENSEQ MY.DIR , MY.FILE TO V.FILE.IN THEN
+            CREATE V.FILE.IN THEN
+            END
+        END
+    END
+
+    GOSUB WRITE.HEADER
+
+    RETURN
+******************************************************************************************************
+SELECT.FT.RECS:
+***************
+    * SELECT FROM POR.TRANSACTION
+    DAYS.NO = '-5W'
+    MY.DATE = TODAY
+    CALL CDT("",MY.DATE,DAYS.NO)
+    DAYS.END = MY.DATE
+    KEY.LIST.FT = ''
+    SELECTED.FT = ''
+    ERROR.MSG.FT = ''
+    T.SEL.FT = ''
+	
+    T.SEL.FT  = "SELECT ":FN.FILE.PORHIS:" WITH ProcessingDate GE ":DAYS.END:" AND DIRECTION EQ 'O' AND CreditMainAccountCurrencyCode NE 'EGP'"
+
+    CALL EB.READLIST(T.SEL.FT, KEY.LIST.FT, '', SELECTED.FT, ERROR.MSG.FT)
+
+    RETURN
+******************************************************************************
+GET.LOCAL.FIELDS.FT:
+**********************
+    *LOCAL.APPLICATION = 'POR.SUPPLEMENTARY.INFO'
+    LOCAL.APPLICATION = 'POR.SUPPLEMENTARY.INFO'
+
+    LOCAL.FIELD = 'FREE.MARKT.CODE'
+    LOCAL.POSITION = ''
+    CALL MULTI.GET.LOC.REF(LOCAL.APPLICATION,LOCAL.FIELD,LOCAL.POSITION)
+    FREE.MARKT.CODE.POS  = LOCAL.POSITION<1,1>
+
+    RETURN
+******************************************************************************
+CREATE.FT.ARRAY:
+******************* 
+    J = 0
+
+    IF SELECTED.FT GT 0 THEN
+        LOOP
+            REMOVE FT.ID FROM KEY.LIST.FT SETTING FT.ID.POS
+        WHILE FT.ID:FT.ID.POS
+            R.FT = ''
+            MY.COUNTER = MY.COUNTER + 1
+            
+			CALL F.READ(FN.FILE.PORHIS, FT.ID, R.FT, F.FILE.PORHIS, ERROR.MSG.FT)
+			
+            R.TEMP  =  FT.ID : MY.SEP
+            R.TEMP :=  R.FT<PPPTX.CreditValueDate> : MY.SEP
+            R.TEMP :=  R.FT<PPPTX.DebitMainAccount> : MY.SEP
+            R.TEMP :=  R.FT<PPPTX.CreditMainAmount> : MY.SEP
+            R.TEMP :=  R.FT<PPPTX.CreditMainAccountCurrencyCode> : MY.SEP
+            R.TEMP :=  R.FT<PPPTX.OrderingCustName> : MY.SEP
+            R.TEMP :=  R.FT<PPPTX.BeneficiaryName> : MY.SEP
+
+            ********************LOCAL fields***********************************
+            R.TEMP :=  R.FT<PPPTX.LOCAL.REF,FREE.MARKT.CODE.POS,1> : MY.SEP
+            ********************LOCAL fields*********************************
+
+            PAYMENT.DETAILS = R.FT<PPPTX.remittanceInformations>
+            CHANGE VM TO '*' IN PAYMENT.DETAILS
+            CHANGE '|' TO '\' IN PAYMENT.DETAILS
+    
+            R.TEMP := PAYMENT.DETAILS: MY.SEP
+           
+            Y.POR.SUPP.ID = FT.ID
+			PARTY.FREE.LINE = ''
+            CALL F.READ(FN.POR.SUPP, Y.POR.SUPP.ID, R.POR.SUPP, F.POR.SUPP, Y.ERR)
+            IF NOT(Y.ERR) THEN
+                PARTY.FREE.LINE = R.POR.SUPP<POR.SUP.PARTY.FREE.LINE>
+            END
+
+            IF PARTY.FREE.LINE NE '' THEN
+                R.TEMP :=  PARTY.FREE.LINE : MY.SEP
+            END ELSE
+                R.TEMP := '' : MY.SEP
+                R.TEMP := R.FT<PPPTX.CreditMainAccount> : MY.SEP
+            END
+
+            GOSUB WRITE.RECORD
+            J += 1
+        REPEAT
+
+    END
+    CLOSE V.FILE.IN
+
+    RETURN
+******************************************************************************************************
+WRITE.RECORD:
+*************
+
+    WRITESEQ  R.TEMP TO V.FILE.IN ELSE
+    END
+    RETURN
+******************************************************************************************************
+WRITE.HEADER:
+**************
+    HEADER = 'ID|CREDIT VALUE DATE|DEBIT ACCOUNT NUMBER|CREDIT AMOUNT|CREDIT CURRENCY|ORDERING CUSTOMER|BENEFICIARY CUSTOMER|FREE MARKET CODE|PAYMENT DETAILS|BANK OF BENEFICIARY CUSTOMER|CREDIT ACCOUNT'
+    
+    WRITESEQ HEADER TO V.FILE.IN ELSE
+    END
+
+    RETURN
+***********************************************************************
+PROGRAM.END:
+************
+    RETURN
+END
 
