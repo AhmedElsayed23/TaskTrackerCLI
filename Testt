@@ -1,1 +1,330 @@
+*-----------------------------------------------------------------------------
+* <Rating>332</Rating>
+*-----------------------------------------------------------------------------
+    SUBROUTINE CIB.DUMP.FT.CIB.CORE
 
+*********************************** AUDIT INFORMATION ********************************
+* 1. Author&Date created  : AHMED20260715
+* 2. Site name    : CIB
+* 3. Product    : POR.TRANSACTION
+* 4. Routine type   :
+* 5. Installed on   : BATCH
+* 6. E.V.B record   :
+********************************** PROGRAM DESCRIPTION ********************************
+* 7. Description
+* --------------
+*
+*  Extract text file containing data of POR.TRANSACTION + Enrich data
+*
+* 8. Incoming arguments
+* -------------------------------
+* a)     :
+*
+* 9. Outgoing arguments
+* -------------------------------
+* a)     :
+*
+**********
+* Modification History     Author
+* 25-Jun-2018              Ravikant              R18 Upgrade Code Retrofit
+*                                                MCBCS-20180625
+* 20-Apr-2026			   Ahmed				 R25 Upgrade Code Retrofit
+*
+*
+*****************************************************************************
+* Insert files
+    $INSERT I_COMMON
+    $INSERT I_EQUATE
+    $INSERT I_F.DATES
+    $INSERT I_F.ACCOUNT
+    $INSERT I_F.CUSTOMER
+    $INSERT I_F.CIB.TT.CBE.CODE
+
+*****************************************************************************
+    GOSUB OPEN.FILES
+    GOSUB CREATE.TEXT.FILE
+    GOSUB PROCESS.TPH.FILE
+
+    GOTO PROGRAM.END
+*****************************************************************************
+OPEN.FILES:
+***********
+*/////////////////// ACCOUNT ////////////////////////////////////////
+    FN.FILE.ACCOUNT = 'FBNK.ACCOUNT'
+    F.FILE.ACCOUNT = ''
+    CALL OPF(FN.FILE.ACCOUNT,F.FILE.ACCOUNT)
+
+*/////////////////// CUSTOMER ///////////////////////////////////////
+    FN.FILE.CUSTOMER = 'FBNK.CUSTOMER'
+    F.FILE.CUSTOMER = ''
+    CALL OPF(FN.FILE.CUSTOMER,F.FILE.CUSTOMER)
+*/////////////////// CIB.TT.CBE.CODE ////////////////////////////////
+    FN.FILE.CO = 'F.CIB.TT.CBE.CODE'
+    F.FILE.CO = ''
+    CALL OPF(FN.FILE.CO,F.FILE.CO)
+
+    RETURN
+*****************************************************************************
+CREATE.TEXT.FILE:
+****************
+*////////////////WRITE (TEXT FILE) ///////////////////
+    MY.DIR = "/gpfs/t24r25Shared/LOCAL.SHARED/BATCHES/POST.COB"
+    MY.SEP = '|'
+    MY.FILE = "FT.CIB.CSV"
+    
+	OPENSEQ MY.DIR , MY.FILE TO V.FILE.IN THEN
+        CLOSE V.FILE.IN
+        Y.TYPE = 'rm'
+        SOURCE.PATH =  MY.DIR:'/':MY.FILE
+        DESTINATION.PATH = ''
+        DESTINATION.FILENAME = ''
+        PARAM.SEPARATOR = ''
+        Y.IN = Y.TYPE:'#':SOURCE.PATH:'#':DESTINATION.PATH:'#':DESTINATION.FILENAME:'#':PARAM.SEPARATOR
+        CALL U.FILE.PROCESS.M.CIB(Y.IN,Y.OUT)
+        Y.OUT.FLG = FIELD(Y.OUT,'FM',1)
+        
+		IF Y.OUT.FLG EQ '-1' THEN
+            TEXT = FIELD(Y.OUT,'FM',2)
+            CALL FATAL.ERROR("CIB.DUMP.FT.CIB")
+        END
+
+        OPENSEQ MY.DIR , MY.FILE TO V.FILE.IN THEN
+            CREATE V.FILE.IN THEN
+            END
+        END
+    END
+    ELSE
+        OPENSEQ MY.DIR , MY.FILE TO V.FILE.IN THEN
+            CREATE V.FILE.IN THEN
+            END
+        END
+    END
+
+    GOSUB WRITE.HEADER
+
+    RETURN
+*****************************************************************************
+PROCESS.TPH.FILE:
+****************
+    TPH.DIR = "/gpfs/t24r25Shared/LOCAL.SHARED/TPH"
+    TPH.FILE = "FT.CIB.CSV.TPH"
+    MY.SEP = '|'
+
+    OPENSEQ TPH.DIR, TPH.FILE TO V.TPH.FILE.IN ELSE
+        CALL FATAL.ERROR("Cannot open input file")
+    END
+
+    * Skip header
+    READSEQ LINE FROM V.TPH.FILE.IN ELSE
+    END
+
+    LOOP
+        READSEQ LINE FROM V.TPH.FILE.IN ELSE EXIT
+        FIELDS = DCOUNT(LINE, MY.SEP)
+        FT.ID = FIELD(LINE, MY.SEP, 1)
+        CreditValueDate = FIELD(LINE, MY.SEP, 2)
+        DebitMainAccount = FIELD(LINE, MY.SEP, 3)
+        CreditMainAmount = FIELD(LINE, MY.SEP, 4)
+        CreditMainAccountCurrencyCode = FIELD(LINE, MY.SEP, 5)
+        OrderingCustName = FIELD(LINE, MY.SEP, 6)
+        BeneficiaryName = FIELD(LINE, MY.SEP, 7)
+        FreeMarketCode = FIELD(LINE, MY.SEP, 8)
+        PaymentDetails = FIELD(LINE, MY.SEP, 9)
+        BeneFiciaryCustBank = FIELD(LINE, MY.SEP, 10)
+        CreditMainAccount = FIELD(LINE, MY.SEP, 11)
+
+        R.TEMP  = FT.ID : MY.SEP
+        R.TEMP := CreditValueDate : MY.SEP
+        R.TEMP := DebitMainAccount : MY.SEP
+
+        CALL F.READ(FN.FILE.ACCOUNT, DebitMainAccount, R.AC, F.FILE.ACCOUNT, ERROR.MSG.AC)
+        CU.ID = R.AC<AC.CUSTOMER>
+        
+        R.TEMP :=  CU.ID : MY.SEP
+        R.TEMP :=  CreditMainAmount : MY.SEP
+        R.TEMP :=  CreditMainAccountCurrencyCode : MY.SEP
+        
+        GOSUB GET.CURRENCY
+        
+        R.TEMP :=  OrderingCustName : MY.SEP
+        R.TEMP :=  BeneficiaryName : MY.SEP
+
+        CALL F.READ(FN.FILE.CUSTOMER, CU.ID, R.CU, F.FILE.CUSTOMER, ERROR.MSG.CU)
+        R.TEMP := R.CU<EB.CUS.SECTOR> : MY.SEP
+        GOSUB GET.SECTOR
+        
+        R.TEMP := R.CU<EB.CUS.INDUSTRY> : MY.SEP
+        GOSUB GET.INDUSTRY
+        
+        R.TEMP := R.CU<EB.CUS.SHORT.NAME> : MY.SEP
+        R.TEMP := FreeMarketCode : MY.SEP
+        R.TEMP := PaymentDetails : MY.SEP
+
+        IF BeneFiciaryCustBank NE '' THEN
+            R.TEMP   :=  BeneFiciaryCustBank : MY.SEP
+            R.TEMP   :=  BeneFiciaryCustBank[8,2] : MY.SEP
+                
+            GOSUB GET.COUNTRY
+        END ELSE
+            CALL F.READ(FN.FILE.ACCOUNT, CreditMainAccount, R.AC, F.FILE.ACCOUNT, ERROR.MSG.AC)
+            IF ERROR.MSG.AC EQ '' THEN
+                R.TEMP  :=  R.AC<AC.SHORT.TITLE> : MY.SEP
+                R.TEMP  := '' : MY.SEP
+            END
+            ELSE
+                R.TEMP  := '' : MY.SEP
+                R.TEMP  := '' : MY.SEP
+            END
+        END
+
+        GOSUB WRITE.RECORD
+    REPEAT
+
+    RETURN
+*****************************************************************************
+WRITE.RECORD:
+*************
+    WRITESEQ  R.TEMP TO V.FILE.IN ELSE
+    END
+    RETURN
+*****************************************************************************
+WRITE.HEADER:
+**************
+    HEADER = 'ID|CREDIT VALUE DATE|DEBIT ACCOUNT NUMBER|CUSTOMER NUMBER|CREDIT AMOUNT|CREDIT CURRENCY|CBE CO CODE|ORDERING CUSTOMER|BENEFICIARY CUSTOMER|SECTOR|PAYMENT CODE|SEGMENT|INDUSTRY|CBE IND. CODE|CBE DETAILS PAYMENT|SHORT NAME|FREE MARKET CODE|PAYMENT DETAILS|BANK OF BENEFICIARY CUSTOMER|COUNTRY CODE|CBE COUNTRY CODE'
+
+    WRITESEQ HEADER TO V.FILE.IN ELSE
+    END
+
+    RETURN
+***********************************************************************
+GET.COUNTRY:
+*************
+    KEY.LIST.CO = '' ; SELECTED.CO = '' ; ERROR.MSG.CO = '' ; T.SEL.CO = ''
+
+    T.SEL.CO  = "SELECT ":FN.FILE.CO:" WITH GROUP.CODE EQ '1' AND CIB.CODE EQ ":BeneFiciaryCustBank[8,2]
+    CALL EB.READLIST(T.SEL.CO, KEY.LIST.CO, '', SELECTED.CO, ERROR.MSG.CO)
+
+    IF SELECTED.CO GT 0 THEN
+        R.CO = ''
+        CALL F.READ(FN.FILE.CO, KEY.LIST.CO, R.CO, F.FILE.CO, ERR.CO)
+        IF R.CO THEN
+            R.TEMP := R.CO<CIB.TT.CBE.CODE.CBE.CODE> : MY.SEP
+        END
+        ELSE
+            R.TEMP := ' ' : MY.SEP
+        END
+    END
+    ELSE
+        R.TEMP := ' ' : MY.SEP
+    END
+
+    RETURN
+***********************************************************************
+GET.CURRENCY:
+*************
+    KEY.LIST.CO = '' ; SELECTED.CO = '' ; ERROR.MSG.CO = '' ; T.SEL.CO = ''
+	
+    T.SEL.CO  = "SELECT ":FN.FILE.CO:" WITH GROUP.CODE EQ '2' AND CIB.CODE EQ ":CreditMainAccountCurrencyCode
+    CALL EB.READLIST(T.SEL.CO, KEY.LIST.CO, '', SELECTED.CO, ERROR.MSG.CO)
+
+    IF SELECTED.CO GT 0 THEN
+        R.CO = ''
+        CALL F.READ(FN.FILE.CO, KEY.LIST.CO, R.CO, F.FILE.CO, ERR.CO)
+        IF R.CO THEN
+            R.TEMP := R.CO<CIB.TT.CBE.CODE.CBE.CODE> : MY.SEP
+        END
+        ELSE
+            R.TEMP := ' ' : MY.SEP
+        END
+    END
+    ELSE
+        R.TEMP := ' ' : MY.SEP
+    END
+
+    RETURN
+***********************************************************************
+GET.INDUSTRY:
+*************
+    KEY.LIST.CO = '' ; SELECTED.CO = '' ; ERROR.MSG.CO = '' ; T.SEL.CO = ''
+    T.SEL.CO  = "SELECT ":FN.FILE.CO:" WITH GROUP.CODE EQ '4' AND CIB.CODE EQ ":R.CU<EB.CUS.INDUSTRY>
+    CALL EB.READLIST(T.SEL.CO, KEY.LIST.CO, '', SELECTED.CO, ERROR.MSG.CO)
+
+    IF SELECTED.CO GT 0 THEN
+        R.CO = ''
+        CALL F.READ(FN.FILE.CO, KEY.LIST.CO, R.CO, F.FILE.CO, ERR.CO)
+        IF R.CO THEN
+            R.TEMP := R.CO<CIB.TT.CBE.CODE.CBE.CODE> : MY.SEP
+        END
+        ELSE
+            R.TEMP := ' ' : MY.SEP
+        END
+    END
+    ELSE
+        R.TEMP := ' ' : MY.SEP
+    END
+***** PAYMENT OF DETAIL
+    KEY.LIST.CO = '' ; SELECTED.CO = '' ; ERROR.MSG.CO = '' ; T.SEL.CO = ''
+    T.SEL.CO  = "SELECT ":FN.FILE.CO:" WITH GROUP.CODE EQ '3' AND CIB.CODE EQ ":R.CU<EB.CUS.INDUSTRY>
+    CALL EB.READLIST(T.SEL.CO, KEY.LIST.CO, '', SELECTED.CO, ERROR.MSG.CO)
+
+    IF SELECTED.CO GT 0 THEN
+        R.CO = ''
+        CALL F.READ(FN.FILE.CO, KEY.LIST.CO, R.CO, F.FILE.CO, ERR.CO)
+        IF R.CO THEN
+            R.TEMP := R.CO<CIB.TT.CBE.CODE.CBE.CODE> : MY.SEP
+        END
+        ELSE
+            R.TEMP := ' ' : MY.SEP
+        END
+    END
+    ELSE
+        R.TEMP := ' ' : MY.SEP
+    END
+
+    RETURN
+***********************************************************************
+GET.SECTOR:
+*************
+****PAYMENT CODE
+    KEY.LIST.CO = '' ; SELECTED.CO = '' ; ERROR.MSG.CO = '' ; T.SEL.CO = ''
+    T.SEL.CO  = "SELECT ":FN.FILE.CO:" WITH GROUP.CODE EQ '5' AND CIB.CODE EQ ":R.CU<EB.CUS.SECTOR>
+    CALL EB.READLIST(T.SEL.CO, KEY.LIST.CO, '', SELECTED.CO, ERROR.MSG.CO)
+
+    IF SELECTED.CO GT 0 THEN
+        R.CO = ''
+        CALL F.READ(FN.FILE.CO, KEY.LIST.CO, R.CO, F.FILE.CO, ERR.CO)
+        IF R.CO THEN
+            R.TEMP := R.CO<CIB.TT.CBE.CODE.CBE.CODE> : MY.SEP
+        END
+        ELSE
+            R.TEMP := ' ' : MY.SEP
+        END
+    END
+    ELSE
+        R.TEMP := ' ' : MY.SEP
+    END
+***** SEGMENT
+    KEY.LIST.CO = '' ; SELECTED.CO = '' ; ERROR.MSG.CO = '' ; T.SEL.CO = ''
+    T.SEL.CO  = "SELECT ":FN.FILE.CO:" WITH GROUP.CODE EQ '6' AND CIB.CODE EQ ":R.CU<EB.CUS.SECTOR>
+    CALL EB.READLIST(T.SEL.CO, KEY.LIST.CO, '', SELECTED.CO, ERROR.MSG.CO)
+
+    IF SELECTED.CO GT 0 THEN
+        R.CO = ''
+        CALL F.READ(FN.FILE.CO, KEY.LIST.CO, R.CO, F.FILE.CO, ERR.CO)
+        IF R.CO THEN
+            R.TEMP := R.CO<CIB.TT.CBE.CODE.CBE.CODE> : MY.SEP
+        END
+        ELSE
+            R.TEMP := ' ' : MY.SEP
+        END
+    END
+    ELSE
+        R.TEMP := ' ' : MY.SEP
+    END
+
+    RETURN
+***********************************************************************
+PROGRAM.END:
+************
+    RETURN
+END
