@@ -1,22 +1,60 @@
-Dear Team,
+Subject: RE: T24 → TPH Migration – Clarification Request: Idempotency Mechanism (CIB.API.FT) & Request-Driven Response Codes
 
-As part of our T24 R20 → TPH R25 migration, the current behavior of two mechanisms that are used across multiple funds transfer services. We'd like your confirmation on how each will be handled in TPH.
+Hi Kiran,
 
-1. Idempotency Check
+Thanks for the quick response. Please find the detailed technical requirement for both points below.
 
-Current behavior (T24):
-Every inbound request carries a unique MSG.ID. Before processing, the service checks a shared audit log table for an existing record with that same MSG.ID. If a matching record with a successful status already exists, the service skips reprocessing and simply returns the previously stored result (including the original FT ID, OFS record (response), paid amount and return code). This safeguards against duplicate transactions when a channel retries a request.
+1. Idempotency Check — Technical Detail
 
-This mechanism and log table are shared across multiple services (such as Create Outward Transfer, Create Nostro Transfer, and the Authorize step), serving as a common idempotency layer for the entire funds transfer family. Additionally, because external services might provide the MSG.ID instead of the explicit FT reference, the service utilizes this ID to query the log table, retrieve the corresponding FT reference, and subsequently fetch, authorize, or delete the FT details.
+Mechanism:
+Every service that creates or amends a transfer writes an audit record into a shared log table, keyed by MSG.ID, at the start of processing. The record stores: SRVC.ID, CHNL.CODE, MSG.ID, TOKEN.ID, transaction type, current status, the resulting FT ID, the raw OFS response, and the paid amount.
 
-Our question:
-Can you confirm whether TPH/IRIS provides an equivalent mechanism out of the box (e.g. a native idempotency-key feature), or whether this needs to be explicitly designed ?
+On every subsequent inbound request, before any business processing happens, the service reads this table by the inbound MSG.ID:
+- If no record exists yet, processing continues normally and a new record is written once the outcome is known.
+- If a record already exists with a status showing prior success, the service does NOT reprocess — it returns the stored FT ID, OFS response, and paid amount from that original successful call directly.
 
-2. Request-Driven Response Codes
+Important nuance we need TPH to account for: this replay behavior is not 100% consistent across our current services, and we need to decide which pattern TPH should standardize on:
+- In some services (e.g. Create Outward Transfer), a replay returns the exact same success code as the original call (0000), making a duplicate call indistinguishable from a fresh success from the channel's point of view.
+- In other services (e.g. Simulate Fees & Calculate Commission, Create Nostro Transfer), a replay deliberately returns a DIFFERENT code (1001) specifically to tell the channel "this was a cached replay, not a fresh execution."
+We need to decide, as part of this requirement, which behavior TPH should implement consistently — our preference is the second pattern (distinct replay code) applied uniformly, but this needs business confirmation on our side first.
 
-Current Behavior (T24):Across our various services, the system returns specific response codes—for example, 0035 for KYC Expired—along with numerous other business-rule codes. The calling channels rely on these distinct codes to dictate their subsequent behavior.
+Secondary function — reference resolution:
+The same log table is also used the other way around: several services (e.g. the Authorize step, and the enquiry service) accept EITHER the actual FT reference OR the original MSG.ID as their input identifier. If what's supplied doesn't look like a real FT reference, the service looks it up in this same log table to resolve the real FT ID before proceeding (fetch, authorize, or delete). So this table serves two purposes: idempotency AND identifier resolution, and both need to be covered by whatever TPH mechanism replaces it.
 
-How are these request-driven response codes handled within TPH ?
+Services currently relying on this table: Create Outward Transfer, Create Nostro Transfer, Authorize FT, and the FT Details enquiry service, at minimum.
 
+What we need from you:
+Since this isn't OOTB, we'd like your proposal for how this would be implemented in TPH — specifically whether it would be a single shared component usable by all the above services (matching how it works today), or something implemented per-service. We also need your input on effort/approach so we can take the "distinct replay code" decision above back to the business with a clear picture of the cost implication either way.
 
-Thanks
+2. Request-Driven Response Codes — Technical Detail
+
+How it works in FT today:
+Each service returns a numeric status code as part of its response, and the calling channel branches its own behavior based on that code (e.g. showing a specific error message, retrying, or proceeding to the next step). These codes are business-rule outcomes, not generic HTTP-style errors — each one maps to a specific condition the service detected during processing.
+
+Below is the current code inventory by service, since you asked for the specific detail:
+
+Create Outward Transfer: 0000 success; 0006 generic failure (insufficient balance / OFS rejection / channel restriction); 0011 insufficient balance (Business Banking specific case); 3003 posting restricted (customer industry restriction).
+
+Simulate Fees & Calculate Commission: 0000 success; 0006 failure; 1001 duplicate/cached replay; 5000 external reference, channel, or inputter mismatch against an in-flight record.
+
+Amend Outward Transfer: 0000 success; 0006 failure (insufficient balance or OFS rejection).
+
+Authorize FT: 0000 success (CUSTODY channel only); 1 success (all other channels — note this is a single-digit code, not the 4-digit format used elsewhere); -1 generic failure (non-CUSTODY); 0008 failure default (CUSTODY); 0020 inputter/ownership mismatch guard.
+
+Create Nostro Transfer: 0000 success; 0006 failure; 1001 duplicate/cached replay.
+
+FT Details (enquiry): 0000 found; 0001 not found.
+
+DXP (digital channel) Execute Payment: 0000 success; 0001 debit account not found; 0005 credit account not found; 0011 insufficient balance; 0020 auto-authorization/record-status issue; 0021 ambiguous OFS outcome; 0023 domestic-currency country-control rejection; 0024 IBAN-related outcome; 0035 KYC needs updating; 0099 staff self-transfer blocked; 1001 duplicate; 1111 generic/unresolved error; 2222 / 3333 FX-not-supported rejections; 4444 invalid charity account; 9999 retry limit exhausted.
+
+Important nuance we need TPH to account for: some numeric codes are reused across different services with DIFFERENT meanings (for example, 0020 means something different in Authorize FT than it does in DXP), and the code FORMAT itself isn't even consistent (Authorize FT returns a bare 1 / -1 for most channels instead of a 4-digit code). We need to decide, as a requirement, whether TPH should:
+(a) preserve each service's existing codes exactly as-is (so no channel-side changes are needed), or
+(b) move to one clean, non-overlapping status code model shared across all services (cleaner long-term, but means every calling channel needs to be updated to the new codes).
+
+What we need from you:
+Can you confirm how EB.ERROR / OVERRIDES were mapped for channel response codes in the previous R20 release, as you mentioned? If you can share that mapping approach, we can assess whether it's suited to carry the full code list above, or whether it needs extending given the reuse/format inconsistencies we've just flagged. Once we see your proposed mapping approach, we'll take the (a) vs (b) decision back to the business.
+
+Happy to jump on a call to walk through both of these if that's faster than more email back-and-forth.
+
+Thanks,
+Ahmed
