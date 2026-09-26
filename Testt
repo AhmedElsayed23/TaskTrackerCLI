@@ -1,14 +1,22 @@
-Hi @Ahmed El-Sayed,
+Dear Team,
 
-Please find my answers below.
+As part of our T24 R20 → TPH R25 migration, the current behavior of two mechanisms that are used across multiple funds transfer services. We'd like your confirmation on how each will be handled in TPH.
 
 1. Idempotency Check
 
-Kiran - It is not OOTB functionality.  It requires the customization to do achieve it. Before that we need the more requirement details about how are we handling this with FT application Technically? 
+Current behavior (T24):
+Every inbound request carries a unique MSG.ID. Before processing, the service checks a shared audit log table for an existing record with that same MSG.ID. If a matching record with a successful status already exists, the service skips reprocessing and simply returns the previously stored result (including the original FT ID, OFS record (response), paid amount and return code). This safeguards against duplicate transactions when a channel retries a request.
+
+This mechanism and log table are shared across multiple services (such as Create Outward Transfer, Create Nostro Transfer, and the Authorize step), serving as a common idempotency layer for the entire funds transfer family. Additionally, because external services might provide the MSG.ID instead of the explicit FT reference, the service utilizes this ID to query the log table, retrieve the corresponding FT reference, and subsequently fetch, authorize, or delete the FT details.
+
+Our question:
+Can you confirm whether TPH/IRIS provides an equivalent mechanism out of the box (e.g. a native idempotency-key feature), or whether this needs to be explicitly designed ?
 
 2. Request-Driven Response Codes
 
-Kiran - I guess we would have mapped the Channel Response codes for EB.ERROR and OVERRIDES in Previous Release R20.  It should be same here as well.  And we need to know more detailed requirement about what are the different Status Codes and How are we Handling them in FT?
+Current Behavior (T24):Across our various services, the system returns specific response codes—for example, 0035 for KYC Expired—along with numerous other business-rule codes. The calling channels rely on these distinct codes to dictate their subsequent behavior.
 
-Thanks,
-Kiran 
+How are these request-driven response codes handled within TPH ?
+
+
+Thanks
